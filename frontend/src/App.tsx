@@ -16,6 +16,7 @@ import { logWordDebug, shouldDebugWord } from './utils/wordDebug'
 
 const keywordToEmoji = getAllEmojiKeywords();
 const collapsedCommonEmojis = Array.from(new Set(Array.from(keywordToEmoji.values()))).slice(0, 120);
+const SAMPLE_LEMMA_TEST_TITLE = 'sample lemma test';
 
 type ViewMode = 'read' | 'review';
 type ReviewSortMode = 'stats' | 'date' | 'alphabet';
@@ -74,6 +75,10 @@ function getStoredNumber(key: string, fallback: number): number {
 
   const parsed = Number(stored);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeDocumentTitle(value?: string): string {
+  return (value || '').trim().toLowerCase();
 }
 
 function App() {
@@ -1584,6 +1589,87 @@ function App() {
     handleStop();
   };
 
+  const annotationBelongsToSampleLemmaTest = (annotation?: WordAnnotation): boolean => {
+    if (!annotation) return false;
+
+    if (normalizeDocumentTitle(annotation.documentTitle) === SAMPLE_LEMMA_TEST_TITLE) {
+      return true;
+    }
+
+    return (annotation.encounteredMeanings || []).some(
+      meaning => normalizeDocumentTitle(meaning.documentTitle) === SAMPLE_LEMMA_TEST_TITLE,
+    );
+  };
+
+  const collectWordAliasGroup = (seedWords: Iterable<string>): Set<string> => {
+    const aliasWords = new Set(
+      Array.from(seedWords)
+        .map(word => word?.toLowerCase().trim())
+        .filter(Boolean) as string[],
+    );
+
+    let changed = true;
+    while (changed) {
+      changed = false;
+
+      for (const [key, candidate] of annotations.entries()) {
+        const candidateAliases = new Set(
+          [
+            key,
+            candidate.word,
+            candidate.baseForm,
+            ...(candidate.encounteredForms || []),
+          ]
+            .map(item => item?.toLowerCase().trim())
+            .filter(Boolean) as string[],
+        );
+
+        const overlaps = Array.from(candidateAliases).some(alias => aliasWords.has(alias));
+        if (!overlaps) {
+          continue;
+        }
+
+        for (const alias of candidateAliases) {
+          if (!aliasWords.has(alias)) {
+            aliasWords.add(alias);
+            changed = true;
+          }
+        }
+      }
+    }
+
+    return aliasWords;
+  };
+
+  const removeWordCardAliases = async (
+    aliasWords: Set<string>,
+    options: { markAsKnown: boolean },
+  ) => {
+    for (const alias of aliasWords) {
+      removeAnnotation(alias);
+    }
+
+    for (const alias of aliasWords) {
+      await deleteAnnotation(alias);
+    }
+
+    if (options.markAsKnown) {
+      for (const alias of aliasWords) {
+        addKnownWord(alias);
+        await addKnownWordToDB(alias);
+      }
+    }
+
+    for (const alias of aliasWords) {
+      closeCard(`word-${alias}`);
+      removeFromCardHistory(alias);
+    }
+
+    if (selectedWord && aliasWords.has(selectedWord.toLowerCase())) {
+      setSelectedWord(null);
+    }
+  };
+
   // Handle delete from cards
   const handleDeleteFromCards = async (word: string) => {
     try {
@@ -1605,51 +1691,54 @@ function App() {
           .map(item => item?.toLowerCase().trim())
           .filter(Boolean) as string[],
       );
+      const expandedAliases = collectWordAliasGroup(aliasWords);
+      await removeWordCardAliases(expandedAliases, { markAsKnown: true });
 
-      for (const [key, candidate] of annotations.entries()) {
-        const candidateAliases = new Set(
-          [
-            key,
-            candidate.word,
-            candidate.baseForm,
-            ...(candidate.encounteredForms || []),
-          ]
-            .map(item => item?.toLowerCase().trim())
-            .filter(Boolean) as string[],
-        );
-
-        const overlaps = Array.from(candidateAliases).some(alias => aliasWords.has(alias));
-        if (overlaps) {
-          aliasWords.add(key.toLowerCase());
-          candidateAliases.forEach(alias => aliasWords.add(alias));
-        }
-      }
-
-      for (const alias of aliasWords) {
-        removeAnnotation(alias);
-      }
-
-      for (const alias of aliasWords) {
-        await deleteAnnotation(alias);
-      }
-
-      for (const alias of aliasWords) {
-        addKnownWord(alias);
-        await addKnownWordToDB(alias);
-      }
-
-      for (const alias of aliasWords) {
-        closeCard(`word-${alias}`);
-        removeFromCardHistory(alias);
-      }
-
-      if (selectedWord && aliasWords.has(selectedWord.toLowerCase())) {
-        setSelectedWord(null);
-      }
-
-      console.log(`Deleted word card aliases: ${Array.from(aliasWords).join(', ')}`);
+      console.log(`Deleted word card aliases: ${Array.from(expandedAliases).join(', ')}`);
     } catch (error) {
       console.error('Failed to delete from cards:', error);
+    }
+  };
+
+  const handleDeleteSampleLemmaTestCards = async () => {
+    try {
+      const cachedAnnotations = await getAllCachedAnnotations();
+      const sampleSeeds = new Set<string>();
+
+      for (const [key, annotation] of annotations.entries()) {
+        if (!annotationBelongsToSampleLemmaTest(annotation)) {
+          continue;
+        }
+
+        [key, annotation.word, annotation.baseForm, ...(annotation.encounteredForms || [])]
+          .map(item => item?.toLowerCase().trim())
+          .filter(Boolean)
+          .forEach(alias => sampleSeeds.add(alias as string));
+      }
+
+      for (const annotation of cachedAnnotations) {
+        if (!annotationBelongsToSampleLemmaTest(annotation as WordAnnotation)) {
+          continue;
+        }
+
+        [annotation.word, annotation.baseForm, ...(annotation.encounteredForms || [])]
+          .map(item => item?.toLowerCase().trim())
+          .filter(Boolean)
+          .forEach(alias => sampleSeeds.add(alias as string));
+      }
+
+      if (sampleSeeds.size === 0) {
+        alert('No word cards found from "Sample Lemma Test".');
+        return;
+      }
+
+      const aliasWords = collectWordAliasGroup(sampleSeeds);
+      await removeWordCardAliases(aliasWords, { markAsKnown: false });
+
+      alert(`Deleted ${aliasWords.size} Sample Lemma Test word-card entries.`);
+    } catch (error) {
+      console.error('Failed to delete Sample Lemma Test cards:', error);
+      alert('Failed to delete Sample Lemma Test word cards.');
     }
   };
 
@@ -2314,19 +2403,31 @@ ${sortedWords.join(' ')}
     void touchDocument(currentDocumentId);
   }, [currentDocumentId]);
 
-  const handleLoadSample = () => {
-    const sampleText = `Three serving girls huddled together in the cold, whispering about the mysterious stranger who had arrived at dawn.
+  const handleLoadSample = async () => {
+    const fallbackSampleText = `covered / cover
+walled / wall
+wore / wear
+tugged / tug
+writes / wrote / written / write`;
 
-The old manor house stood silent on the hill, its windows dark and unwelcoming. Nobody had lived there for decades, yet smoke curled from one chimney.
+    let sampleText = fallbackSampleText;
 
-"Perhaps we should investigate," suggested the youngest girl, her curiosity overcoming her fear. But the others shook their heads vigorously.`;
+    try {
+      const response = await fetch('/sample-lemma-test.txt', { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(`Failed to load sample file: ${response.status}`);
+      }
+      sampleText = await response.text();
+    } catch (error) {
+      console.warn('[SampleText] Falling back to inline sample text', error);
+    }
 
     const paragraphs = tokenizeParagraphs(sampleText);
 
     addDocument({
-      id: 'sample-document',  // Fixed ID for sample
+      id: 'sample-document',
       type: 'text',
-      title: 'Sample Document',
+      title: 'Sample Lemma Test',
       content: sampleText,
       paragraphs,
       createdAt: Date.now(),
@@ -4214,6 +4315,14 @@ The old manor house stood silent on the hill, its windows dark and unwelcoming. 
                   className="w-full px-4 py-2 border border-border rounded-lg hover:bg-hover text-sm"
                 >
                   Load Sample Text
+                </button>
+
+                <button
+                  onClick={handleDeleteSampleLemmaTestCards}
+                  className="w-full px-4 py-2 border border-red-500 bg-red-50 text-red-700 hover:bg-red-100 rounded-lg text-sm font-semibold"
+                  title='Delete all word cards whose document title is "Sample Lemma Test"'
+                >
+                  Delete Sample Lemma Test Cards
                 </button>
                 
                 <div className="relative">

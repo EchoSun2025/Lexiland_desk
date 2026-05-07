@@ -16,6 +16,29 @@ class LocalDictionaryService {
   private dictionary = new Map<string, LocalDictEntry>();
   private wordForms = new Map<string, string>();
 
+  private hasDerivedForms(word: string): boolean {
+    const lowerWord = word.toLowerCase();
+    for (const [form, base] of this.wordForms.entries()) {
+      if (form !== lowerWord && base === lowerWord) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private shouldApplyMappedBaseForm(lowerWord: string, mappedBaseForm: string | null): boolean {
+    if (!mappedBaseForm || mappedBaseForm === lowerWord) {
+      return false;
+    }
+
+    // Guard against noisy reverse mappings like "light" -> "lighting".
+    if (this.hasDerivedForms(lowerWord)) {
+      return false;
+    }
+
+    return true;
+  }
+
   private isUnknownPos(pos?: string): boolean {
     const normalized = (pos || '').trim().toLowerCase();
     return !normalized || normalized === 'unknown' || normalized === 'other';
@@ -27,7 +50,7 @@ class LocalDictionaryService {
     mappedBaseForm: string | null,
     mappedEntry: LocalDictEntry | undefined,
   ): boolean {
-    if (!mappedBaseForm || !mappedEntry || mappedBaseForm === lowerWord) {
+    if (!this.shouldApplyMappedBaseForm(lowerWord, mappedBaseForm) || !mappedEntry) {
       return false;
     }
 
@@ -109,6 +132,7 @@ class LocalDictionaryService {
     const lowerWord = word.toLowerCase();
     const mappedBaseForm = this.wordForms.get(lowerWord) || null;
     const mappedEntry = mappedBaseForm ? this.dictionary.get(mappedBaseForm) : undefined;
+    const shouldApplyMappedBaseForm = this.shouldApplyMappedBaseForm(lowerWord, mappedBaseForm);
 
     let entry = this.dictionary.get(lowerWord);
     const directEntryWord = entry?.word || null;
@@ -120,6 +144,7 @@ class LocalDictionaryService {
         directEntryWord,
         directEntryPos: entry?.pos || null,
         mappedBaseForm,
+        shouldApplyMappedBaseForm,
         mappedBaseExistsInDictionary: mappedBaseForm ? this.dictionary.has(mappedBaseForm) : false,
       });
     }
@@ -170,7 +195,7 @@ class LocalDictionaryService {
     }
 
     const resolvedBaseForm =
-      mappedBaseForm && mappedBaseForm !== lowerWord && this.dictionary.has(mappedBaseForm)
+      shouldApplyMappedBaseForm && mappedBaseForm && this.dictionary.has(mappedBaseForm)
         ? mappedBaseForm
         : entry.word;
     const resolvedPartOfSpeech =
