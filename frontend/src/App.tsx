@@ -212,6 +212,19 @@ function App() {
   
   // Get paragraphs to display (from chapter or document)
   const displayParagraphs = currentChapter?.paragraphs || currentDocument?.paragraphs || [];
+  const markdownOutlineEntries = useMemo(
+    () =>
+      currentDocument?.format === 'markdown'
+        ? displayParagraphs
+            .map((paragraph: ParagraphType, index: number) => ({
+              paragraphIndex: index,
+              title: paragraph.text,
+              level: paragraph.blockType === 'heading' ? paragraph.blockLevel || 1 : null,
+            }))
+            .filter((item): item is { paragraphIndex: number; title: string; level: number } => Boolean(item.level))
+        : [],
+    [currentDocument?.format, displayParagraphs],
+  );
 
   // Speech synthesis state
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -2625,6 +2638,14 @@ writes / wrote / written / write`;
     void createTextCard('paragraph', paragraph.text, paragraph.text);
   };
 
+  const handleJumpToParagraph = (paragraphIndex: number) => {
+    const scrollContainer = document.getElementById('main-scroll-container');
+    const target = scrollContainer?.querySelector(`[data-paragraph-index="${paragraphIndex}"]`) as HTMLElement | null;
+    if (!target) return;
+
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   // Speech synthesis handlers
   const handlePlayPause = () => {
     if (!currentDocument) return;
@@ -3614,6 +3635,38 @@ writes / wrote / written / write`;
                   })}
                   
                   {/* 闂傚倸鍊风粈渚€骞栭位鍥敃閿曗偓閻ょ偓绻濇繝鍌滃闁藉啰鍠栭弻鏇熺箾閸喖澹勫┑鐐叉▕娴滄粓宕橀埀顒€顪冮妶鍡樺暗闁稿鍋よ棢婵犻潧顑嗛埛鎴︽煙閼测晛浠滈柛鏃€锕㈤弻娑㈠棘閸柭ゅ惈闂佺硶鏂侀崑鎾愁渻閵堝棗鍧婇柛瀣崌閺屾稒绻濋崒婊€铏庨梺浼欑到閸㈡煡锝炲┑瀣垫晞闁冲搫鍊归ˉ鍫⑩偓瑙勬礈閸犳牠宕洪悙鍝勭畾鐟滃本绔熼弴銏♀拺闁告稑锕ゆ慨锕傛煕閻樺磭澧辩紒顔碱煼瀵泛鈻庨崜褍鏁搁梻浣稿悑閹倸顭囪閹便劑宕奸妷锕€鈧?*/}
+                  <div className="mt-4 pt-3 border-t border-border">
+                    <button
+                      onClick={() => setCurrentDocument('')}
+                      className="w-full px-3 py-2 rounded-lg hover:bg-hover text-sm flex items-center gap-2"
+                    >
+                      Back to Documents
+                    </button>
+                  </div>
+                </>
+              ) : currentDocument?.format === 'markdown' && markdownOutlineEntries.length > 0 ? (
+                <>
+                  <div className="px-3 py-2 mb-2 font-bold text-lg border-b border-border">
+                    {currentDocument.title}
+                  </div>
+                  <div className="text-xs text-muted mb-2 px-3">Headings ({markdownOutlineEntries.length})</div>
+                  {markdownOutlineEntries.map((entry, idx) => (
+                    <button
+                      key={`${entry.paragraphIndex}-${idx}`}
+                      onClick={() => handleJumpToParagraph(entry.paragraphIndex)}
+                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-hover flex items-start gap-2"
+                      style={{ paddingLeft: `${0.75 + Math.max(0, entry.level - 1) * 0.85}rem` }}
+                      title={entry.title}
+                    >
+                      <span className="text-[10px] font-semibold text-stone-500 min-w-[28px] pt-0.5">
+                        H{entry.level}
+                      </span>
+                      <span className={`flex-1 ${entry.level === 1 ? 'font-bold' : entry.level === 2 ? 'font-semibold' : 'text-sm'}`}>
+                        {entry.title}
+                      </span>
+                    </button>
+                  ))}
+
                   <div className="mt-4 pt-3 border-t border-border">
                     <button
                       onClick={() => setCurrentDocument('')}
