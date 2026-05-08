@@ -35,7 +35,6 @@ interface ParagraphProps {
   ) => void;
   sentenceCardKeys: Set<string>;
   onSentenceCardClick?: (sentenceText: string) => void;
-  onParagraphAction?: (paragraphIndex: number) => void;
   paragraphIndex?: number;
   currentSentenceIndex?: number | null;
   currentWordIndex?: number;
@@ -129,7 +128,6 @@ export default function Paragraph({
   onSentenceContextMenu,
   sentenceCardKeys,
   onSentenceCardClick,
-  onParagraphAction,
   paragraphIndex = 0,
   currentSentenceIndex = null,
   currentWordIndex = -1,
@@ -138,6 +136,7 @@ export default function Paragraph({
 }: ParagraphProps) {
   if (renderMode === 'markdown') {
     const blockType = paragraph.blockType || 'paragraph';
+    const listIndentLevel = Math.max(0, paragraph.blockLevel || 0);
     const inlineSegments = parseMarkdownInlineSegments(paragraph.text);
     let wordIndex = 0;
 
@@ -179,17 +178,14 @@ export default function Paragraph({
     };
 
     return (
-      <div className={`relative group ${getMarkdownWrapperClass(paragraph)}`}>
-        {blockType !== 'code' && (
-          <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button
-              className="px-2 py-1 border border-border bg-white rounded-lg hover:bg-hover text-xs"
-              onClick={() => onParagraphAction?.(paragraphIndex)}
-            >
-              &gt;
-            </button>
-          </div>
-        )}
+      <div
+        className={`relative group ${getMarkdownWrapperClass(paragraph)}`}
+        style={
+          blockType === 'unordered-list-item' || blockType === 'ordered-list-item'
+            ? { marginLeft: `${listIndentLevel * 1.25}rem` }
+            : undefined
+        }
+      >
         {(blockType === 'unordered-list-item' || blockType === 'ordered-list-item') && (
           <span
             className={`inline-flex w-4 h-4 mr-2 mt-1 align-top items-center justify-center rounded-full text-[10px] font-bold ${
@@ -214,14 +210,6 @@ export default function Paragraph({
 
   return (
     <div className="relative leading-relaxed mb-2 rounded-lg p-1.5 hover:bg-gray-50 group">
-      <div className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button
-          className="px-2 py-1 border border-border bg-white rounded-lg hover:bg-hover text-xs"
-          onClick={() => onParagraphAction?.(paragraphIndex)}
-        >
-          &gt;
-        </button>
-      </div>
       {paragraph.sentences.map((sentence, index) => {
         const globalSentenceIndex = sentencesBeforeThisPara + index;
         const isCurrentSentence = currentSentenceIndex === globalSentenceIndex;

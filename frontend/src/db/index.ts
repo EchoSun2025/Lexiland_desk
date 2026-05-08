@@ -561,6 +561,10 @@ export async function touchDocument(documentId: string): Promise<void> {
   }
 }
 
+export async function deleteSavedDocument(documentId: string): Promise<void> {
+  await db.documents.delete(documentId);
+}
+
 export async function getCardNotes(
   cardType: CardNote['cardType'],
   cardKey: string

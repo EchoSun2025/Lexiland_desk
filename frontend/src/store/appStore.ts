@@ -95,6 +95,7 @@ interface AppState {
   autoShowCardOnPlay: boolean;
 
   addDocument: (doc: Document) => void;
+  removeDocument: (id: string) => void;
   loadDocuments: (docs: Document[], currentDocumentId?: string | null) => void;
   setCurrentDocument: (id: string) => void;
   setCurrentChapter: (chapterId: string) => void;
@@ -171,6 +172,24 @@ export const useAppStore = create<AppState>((set) => {
       return {
         documents: [...filtered, doc],
         currentDocumentId: doc.id,
+      };
+    }),
+
+    removeDocument: (id) => set((state) => {
+      const remainingDocuments = state.documents.filter(doc => doc.id !== id);
+      const nextCurrentDocumentId = state.currentDocumentId === id
+        ? (remainingDocuments[0]?.id || null)
+        : state.currentDocumentId;
+
+      if (nextCurrentDocumentId) {
+        localStorage.setItem('currentDocumentId', nextCurrentDocumentId);
+      } else {
+        localStorage.removeItem('currentDocumentId');
+      }
+
+      return {
+        documents: remainingDocuments,
+        currentDocumentId: nextCurrentDocumentId,
       };
     }),
 

@@ -4,7 +4,7 @@ import { useAppStore, type Document, type Chapter, type LearningCardType, type A
 import { tokenizeParagraphs, tokenizeMarkdownParagraphs, type Paragraph as ParagraphType, type Sentence, type Token } from './utils'
 import Paragraph from './components/Paragraph'
 import WordCard from './components/WordCard'
-import { loadKnownWordsFromFile, getAllKnownWords, addKnownWord as addKnownWordToDB, batchAddKnownWords, cacheAnnotation, getAllCachedAnnotations, addLearntWordToDB, removeLearntWordFromDB, getAllLearntWords, deleteAnnotation, cachePhraseAnnotation, getAllCachedPhraseAnnotations, deletePhraseAnnotation, exportUserData, importUserData, updateEmoji, addEmojiImagePathToActiveMeaning, setActiveMeaning, saveDocument, getAllSavedDocuments, touchDocument } from './db'
+import { loadKnownWordsFromFile, getAllKnownWords, addKnownWord as addKnownWordToDB, batchAddKnownWords, cacheAnnotation, getAllCachedAnnotations, addLearntWordToDB, removeLearntWordFromDB, getAllLearntWords, deleteAnnotation, cachePhraseAnnotation, getAllCachedPhraseAnnotations, deletePhraseAnnotation, exportUserData, importUserData, updateEmoji, addEmojiImagePathToActiveMeaning, setActiveMeaning, saveDocument, getAllSavedDocuments, touchDocument, deleteSavedDocument } from './db'
 import { annotateWord, annotatePhrase, searchImage, generateEmojiImage, savePastedImage, resolveAssetUrl, saveUserBackup, loadUserBackup, getUserBackupStatus, type WordAnnotation, type PhraseAnnotation } from './api'
 import PhraseCard from './components/PhraseCard'
 import { localDictionary } from './services/localDictionary'
@@ -160,6 +160,7 @@ function App() {
     sentenceCardProvider,
     autoPronounceSetting,
     addDocument,
+    removeDocument,
     loadDocuments,
     setCurrentDocument,
     setCurrentChapter,
@@ -2632,18 +2633,20 @@ writes / wrote / written / write`;
     }
   };
 
-  const handleParagraphAction = (paragraphIndex: number) => {
-    const paragraph = displayParagraphs[paragraphIndex];
-    if (!paragraph) return;
-    void createTextCard('paragraph', paragraph.text, paragraph.text);
-  };
-
   const handleJumpToParagraph = (paragraphIndex: number) => {
     const scrollContainer = document.getElementById('main-scroll-container');
     const target = scrollContainer?.querySelector(`[data-paragraph-index="${paragraphIndex}"]`) as HTMLElement | null;
     if (!target) return;
 
     target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const handleDeleteLoadedDocument = async (doc: Document) => {
+    const confirmed = window.confirm(`Remove "${doc.title}" from the loaded documents list?\n\nThis only removes the saved in-app copy. It will not delete the original file.`);
+    if (!confirmed) return;
+
+    await deleteSavedDocument(doc.id);
+    removeDocument(doc.id);
   };
 
   // Speech synthesis handlers
@@ -3596,6 +3599,12 @@ writes / wrote / written / write`;
               {currentDocument?.type === 'epub' && currentDocument.chapters ? (
                 <>
                   {/* EPUB 婵犵數濮烽弫鎼佸磻閻愬搫鍨傞悹杞扮秿濞戙垹绠ｉ柣鎰缁犳岸姊洪幖鐐插姶闁告挻宀稿畷鏇㈠箻缂佹鍘遍梺鍝勬储閸斿矂鎮橀悩缁樼厱闁硅埇鍔屾禍楣冩⒒閸屾瑧鍔嶉柟顔肩埣瀹曟洖煤椤忓嫮顦梺鎸庢礀閸婄效?*/}
+                  <button
+                    onClick={() => setCurrentDocument('')}
+                    className="w-full mb-3 px-3 py-2 rounded-lg bg-stone-900 text-white hover:bg-stone-800 text-sm font-semibold flex items-center gap-2"
+                  >
+                    Back to Documents
+                  </button>
                   <div className="px-3 py-2 mb-2 font-bold text-lg border-b border-border">
                     Book {currentDocument.title}
                   </div>
@@ -3635,17 +3644,15 @@ writes / wrote / written / write`;
                   })}
                   
                   {/* 闂傚倸鍊风粈渚€骞栭位鍥敃閿曗偓閻ょ偓绻濇繝鍌滃闁藉啰鍠栭弻鏇熺箾閸喖澹勫┑鐐叉▕娴滄粓宕橀埀顒€顪冮妶鍡樺暗闁稿鍋よ棢婵犻潧顑嗛埛鎴︽煙閼测晛浠滈柛鏃€锕㈤弻娑㈠棘閸柭ゅ惈闂佺硶鏂侀崑鎾愁渻閵堝棗鍧婇柛瀣崌閺屾稒绻濋崒婊€铏庨梺浼欑到閸㈡煡锝炲┑瀣垫晞闁冲搫鍊归ˉ鍫⑩偓瑙勬礈閸犳牠宕洪悙鍝勭畾鐟滃本绔熼弴銏♀拺闁告稑锕ゆ慨锕傛煕閻樺磭澧辩紒顔碱煼瀵泛鈻庨崜褍鏁搁梻浣稿悑閹倸顭囪閹便劑宕奸妷锕€鈧?*/}
-                  <div className="mt-4 pt-3 border-t border-border">
-                    <button
-                      onClick={() => setCurrentDocument('')}
-                      className="w-full px-3 py-2 rounded-lg hover:bg-hover text-sm flex items-center gap-2"
-                    >
-                      Back to Documents
-                    </button>
-                  </div>
                 </>
               ) : currentDocument?.format === 'markdown' && markdownOutlineEntries.length > 0 ? (
                 <>
+                  <button
+                    onClick={() => setCurrentDocument('')}
+                    className="w-full mb-3 px-3 py-2 rounded-lg bg-stone-900 text-white hover:bg-stone-800 text-sm font-semibold flex items-center gap-2"
+                  >
+                    Back to Documents
+                  </button>
                   <div className="px-3 py-2 mb-2 font-bold text-lg border-b border-border">
                     {currentDocument.title}
                   </div>
@@ -3666,15 +3673,6 @@ writes / wrote / written / write`;
                       </span>
                     </button>
                   ))}
-
-                  <div className="mt-4 pt-3 border-t border-border">
-                    <button
-                      onClick={() => setCurrentDocument('')}
-                      className="w-full px-3 py-2 rounded-lg hover:bg-hover text-sm flex items-center gap-2"
-                    >
-                      Back to Documents
-                    </button>
-                  </div>
                 </>
               ) : (
                 /* 闂傚倸鍊搁崐椋庣矆娓氣偓楠炲鏁撻悩鍐蹭簻濡炪倖甯掗崐缁樼▔瀹ュ鐓欓弶鍫濆⒔閻ｉ亶鏌涢妸銉モ偓褰掑Φ閸曨垰鍐€妞ゆ劦婢€缁爼姊洪崨濠勬噧闁挎洦浜璇测槈閵忕姷顔掑┑锛勫仧閸嬫捇藝妞嬪海纾兼い鏃傚亾閺嗩剚鎱ㄦ繝鍐┿仢鐎规洦鍋婂畷鐔碱敃閻旇渹澹曠紓浣割儐閿涙洖煤椤忓懏娅囬梺绋挎湰椤曢亶濡烽埡鍌滃幈閻庡厜鍋撻柍褜鍓熷畷鎴濃槈濮樿京鐒奸梺绯曞墲鐪夌紒璇叉閺屾洟宕煎┑鍥ф濡炪倕绻堥崕鐢稿蓟?*/
@@ -3683,10 +3681,22 @@ writes / wrote / written / write`;
                     <div
                       key={doc.id}
                       onClick={() => setCurrentDocument(doc.id)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        void handleDeleteLoadedDocument(doc);
+                      }}
                       className={`px-3 py-2 rounded-lg ${doc.id === currentDocumentId ? 'bg-active font-bold' : 'hover:bg-hover'} flex items-center justify-between cursor-pointer`}
                     >
                       <span className="flex items-center gap-2">
-                        {doc.type === 'epub' ? 'EPUB' : 'FILE'}
+                        <span className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${
+                          doc.type === 'epub'
+                            ? 'bg-amber-100 text-amber-800'
+                            : doc.format === 'markdown'
+                              ? 'bg-zinc-100 text-zinc-700'
+                              : 'bg-sky-100 text-sky-700'
+                        }`}>
+                          {doc.type === 'epub' ? 'EPUB' : doc.format === 'markdown' ? 'MD' : 'TXT'}
+                        </span>
                         {doc.title}
                       </span>
                       {doc.type === 'epub' && doc.chapters && (
@@ -3864,7 +3874,6 @@ writes / wrote / written / write`;
                       onSentenceCardClick={handleSentenceCardClick}
                       onMarkKnown={handleMarkKnown}
                       onSentenceContextMenu={(e, payload) => handleContextMenu(e, payload.pIndex, payload.sIndex, payload.text, payload.focusWords)}
-                      onParagraphAction={handleParagraphAction}
                       currentSentenceIndex={currentSentenceIndex}
                       currentWordIndex={currentWordIndex}
                       sentencesBeforeThisPara={sentencesBeforeThisPara}
