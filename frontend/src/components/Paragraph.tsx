@@ -104,7 +104,7 @@ function getMarkdownWrapperClass(paragraph: ParagraphType): string {
 function getInlineSegmentClass(style: MarkdownInlineSegment['style']): string {
   if (style === 'bold') return 'font-bold text-stone-950';
   if (style === 'italic') return 'italic text-stone-700';
-  if (style === 'code') return 'inline-flex items-center px-1.5 py-0.5 rounded-md bg-zinc-100 text-orange-700 border border-zinc-400 font-mono text-[0.95em] shadow-sm';
+  if (style === 'code') return 'inline-flex items-center px-1.5 py-0.5 rounded-md bg-zinc-100 text-stone-900 border border-zinc-400 font-mono text-[0.95em] shadow-sm';
   return '';
 }
 

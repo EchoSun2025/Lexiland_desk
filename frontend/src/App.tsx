@@ -2539,7 +2539,6 @@ writes / wrote / written / write`;
       .replace(/^---\n[\s\S]*?\n---\n*/m, '')
       .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
       .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-      .replace(/`([^`]+)`/g, '$1')
       .replace(/\n{3,}/g, '\n\n');
   };
 
