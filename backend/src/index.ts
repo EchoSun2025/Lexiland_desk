@@ -26,11 +26,129 @@ const DEFAULT_DATA_DIR = 'D:\\0_EnglishLearning';
 const LEARNING_DATA_DIR = path.resolve(process.env.LEARNING_DATA_DIR || DEFAULT_DATA_DIR);
 const LEARNING_IMAGES_DIR = path.join(LEARNING_DATA_DIR, 'images');
 const LEARNING_BACKUPS_DIR = path.join(LEARNING_DATA_DIR, 'backups');
+const BACKUP_LATEST_SHRINK_RATIO = 0.5;
+const BACKUP_LATEST_PROTECT_MIN_ITEMS = 200;
 
 for (const dir of [LEARNING_DATA_DIR, LEARNING_IMAGES_DIR, LEARNING_BACKUPS_DIR]) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
+}
+
+type BackupSummary = {
+  path: string;
+  fileName: string;
+  exportedAt?: string;
+  totalKnownWords: number;
+  totalLearntWords: number;
+  totalAnnotations: number;
+  totalPhraseAnnotations: number;
+  totalCardNotes: number;
+  totalItems: number;
+};
+
+function summarizeBackupData(data: any, backupPath: string): BackupSummary {
+  const totalKnownWords = data?.statistics?.totalKnownWords ?? data?.data?.knownWords?.length ?? 0;
+  const totalLearntWords = data?.statistics?.totalLearntWords ?? data?.data?.learntWords?.length ?? 0;
+  const totalAnnotations = data?.statistics?.totalAnnotations ?? data?.data?.annotations?.length ?? 0;
+  const totalPhraseAnnotations = data?.statistics?.totalPhraseAnnotations ?? data?.data?.phraseAnnotations?.length ?? 0;
+  const totalCardNotes = data?.statistics?.totalCardNotes ?? data?.data?.cardNotes?.length ?? 0;
+
+  return {
+    path: backupPath,
+    fileName: path.basename(backupPath),
+    exportedAt: typeof data?.exportedAt === 'string' ? data.exportedAt : undefined,
+    totalKnownWords,
+    totalLearntWords,
+    totalAnnotations,
+    totalPhraseAnnotations,
+    totalCardNotes,
+    totalItems: totalKnownWords + totalLearntWords + totalAnnotations + totalPhraseAnnotations + totalCardNotes,
+  };
+}
+
+function readBackupSummary(backupPath: string): BackupSummary | null {
+  if (!fs.existsSync(backupPath)) {
+    return null;
+  }
+
+  try {
+    const jsonData = fs.readFileSync(backupPath, 'utf-8');
+    const data = JSON.parse(jsonData);
+    return summarizeBackupData(data, backupPath);
+  } catch {
+    return null;
+  }
+}
+
+function listBackupSummaries(): BackupSummary[] {
+  if (!fs.existsSync(LEARNING_BACKUPS_DIR)) {
+    return [];
+  }
+
+  const fileNames = fs
+    .readdirSync(LEARNING_BACKUPS_DIR)
+    .filter((name) => /^userdata-.*\.json$/i.test(name));
+
+  return fileNames
+    .map((name) => readBackupSummary(path.join(LEARNING_BACKUPS_DIR, name)))
+    .filter((summary): summary is BackupSummary => Boolean(summary));
+}
+
+function shouldProtectLatestBackup(currentLatest: BackupSummary | null, incoming: BackupSummary): boolean {
+  if (!currentLatest) {
+    return false;
+  }
+
+  if (currentLatest.totalItems < BACKUP_LATEST_PROTECT_MIN_ITEMS) {
+    return false;
+  }
+
+  return incoming.totalItems < currentLatest.totalItems * BACKUP_LATEST_SHRINK_RATIO;
+}
+
+function chooseBackupForLoad(): { summary: BackupSummary | null; warning?: string } {
+  const latestPath = path.join(LEARNING_BACKUPS_DIR, 'userdata-latest.json');
+  const latestSummary = readBackupSummary(latestPath);
+  const allSummaries = listBackupSummaries();
+
+  if (!latestSummary && allSummaries.length === 0) {
+    return { summary: null };
+  }
+
+  const richestSummary = allSummaries.reduce<BackupSummary | null>((best, item) => {
+    if (!best || item.totalItems > best.totalItems) {
+      return item;
+    }
+    return best;
+  }, latestSummary);
+
+  if (
+    latestSummary &&
+    richestSummary &&
+    richestSummary.path !== latestSummary.path &&
+    latestSummary.totalItems < BACKUP_LATEST_PROTECT_MIN_ITEMS &&
+    richestSummary.totalItems >= BACKUP_LATEST_PROTECT_MIN_ITEMS
+  ) {
+    return {
+      summary: richestSummary,
+      warning: `Latest backup looked incomplete (${latestSummary.totalItems} items). Loaded richer snapshot ${richestSummary.fileName} (${richestSummary.totalItems} items) instead.`,
+    };
+  }
+
+  if (
+    latestSummary &&
+    richestSummary &&
+    richestSummary.path !== latestSummary.path &&
+    latestSummary.totalItems < richestSummary.totalItems * BACKUP_LATEST_SHRINK_RATIO
+  ) {
+    return {
+      summary: richestSummary,
+      warning: `Latest backup shrank from ${richestSummary.totalItems} items to ${latestSummary.totalItems}. Loaded richer snapshot ${richestSummary.fileName} instead.`,
+    };
+  }
+
+  return { summary: latestSummary || richestSummary };
 }
 
 const fastify = Fastify({
@@ -815,12 +933,18 @@ fastify.post<{ Body: SaveUserBackupRequest }>('/api/user-backup/save', async (re
 
   try {
     // validate json before saving
-    JSON.parse(jsonData);
+    const parsedData = JSON.parse(jsonData);
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const snapshotPath = path.join(LEARNING_BACKUPS_DIR, `userdata-${timestamp}.json`);
     const latestPath = path.join(LEARNING_BACKUPS_DIR, 'userdata-latest.json');
+    const incomingSummary = summarizeBackupData(parsedData, snapshotPath);
+    const currentLatestSummary = readBackupSummary(latestPath);
+    const preserveLatest = shouldProtectLatestBackup(currentLatestSummary, incomingSummary);
+
     fs.writeFileSync(snapshotPath, jsonData, 'utf-8');
-    fs.writeFileSync(latestPath, jsonData, 'utf-8');
+    if (!preserveLatest) {
+      fs.writeFileSync(latestPath, jsonData, 'utf-8');
+    }
 
     return {
       success: true,
@@ -828,6 +952,9 @@ fastify.post<{ Body: SaveUserBackupRequest }>('/api/user-backup/save', async (re
         savedAt: new Date().toISOString(),
         snapshotPath,
         latestPath,
+        warning: preserveLatest
+          ? `Snapshot saved, but latest backup was preserved because the new backup only had ${incomingSummary.totalItems} items versus ${currentLatestSummary?.totalItems || 0} in latest.`
+          : undefined,
       },
     };
   } catch (error: any) {
@@ -841,19 +968,20 @@ fastify.post<{ Body: SaveUserBackupRequest }>('/api/user-backup/save', async (re
 
 fastify.get('/api/user-backup/load', async (request, reply) => {
   try {
-    const latestPath = path.join(LEARNING_BACKUPS_DIR, 'userdata-latest.json');
-    if (!fs.existsSync(latestPath)) {
+    const selected = chooseBackupForLoad();
+    if (!selected.summary) {
       return reply.code(404).send({
         success: false,
         error: `No backup found in ${LEARNING_BACKUPS_DIR}`,
       });
     }
-    const jsonData = fs.readFileSync(latestPath, 'utf-8');
+    const jsonData = fs.readFileSync(selected.summary.path, 'utf-8');
     return {
       success: true,
       data: {
         jsonData,
-        path: latestPath,
+        path: selected.summary.path,
+        warning: selected.warning,
       },
     };
   } catch (error: any) {

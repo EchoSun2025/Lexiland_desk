@@ -2117,6 +2117,12 @@ ${sortedWords.join(' ')}
       await reloadDataFromDB();
 
       let message = `Loaded from fixed storage.\nImported: ${result.imported}\nSkipped: ${result.skipped}`;
+      if (backup.data.path) {
+        message += `\nSource: ${backup.data.path}`;
+      }
+      if (backup.data.warning) {
+        message += `\nNote: ${backup.data.warning}`;
+      }
       if (result.errors.length > 0) {
         message += `\nErrors: ${result.errors.length}`;
       }

@@ -328,6 +328,7 @@ export interface UserBackupResponse {
     latestPath?: string;
     jsonData?: string;
     path?: string;
+    warning?: string;
     dataDir?: string;
     imagesDir?: string;
     backupsDir?: string;
