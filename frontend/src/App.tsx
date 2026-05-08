@@ -2429,6 +2429,7 @@ ${sortedWords.join(' ')}
         .map((doc) => ({
           id: doc.id,
           type: doc.type || 'text',
+          format: inferSavedDocumentFormat(doc),
           title: doc.title,
           content: doc.content,
           paragraphs: doc.paragraphs,
@@ -2525,6 +2526,26 @@ writes / wrote / written / write`;
 
   const handleFileImport = () => {
     fileInputRef.current?.click();
+  };
+
+  const inferSavedDocumentFormat = (doc: {
+    format?: 'plain' | 'markdown';
+    content?: string;
+    paragraphs?: Array<{ blockType?: string }>;
+  }): 'plain' | 'markdown' => {
+    if (doc.format === 'plain' || doc.format === 'markdown') {
+      return doc.format;
+    }
+
+    if (doc.paragraphs?.some((paragraph) => paragraph.blockType && paragraph.blockType !== 'paragraph')) {
+      return 'markdown';
+    }
+
+    if (doc.content && /(^|\n)(#{1,6}\s|>\s|[-*+]\s|\d+\.\s|```)/m.test(doc.content)) {
+      return 'markdown';
+    }
+
+    return 'plain';
   };
 
   const normalizeImportedText = (rawContent: string, fileName: string) => {
