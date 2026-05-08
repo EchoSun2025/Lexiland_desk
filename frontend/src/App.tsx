@@ -204,6 +204,7 @@ function App() {
   const [reviewStatsRange, setReviewStatsRange] = useState<ReviewStatsRange>('week');
   const [reviewSelectedBucketKey, setReviewSelectedBucketKey] = useState<string | null>(null);
   const [reviewHiddenCardKeys, setReviewHiddenCardKeys] = useState<Set<string>>(new Set());
+  const [pendingDeleteDocumentId, setPendingDeleteDocumentId] = useState<string | null>(null);
   
   // Get current document and chapter
   const currentDocument = documents.find((d: Document) => d.id === currentDocumentId);
@@ -2642,11 +2643,9 @@ writes / wrote / written / write`;
   };
 
   const handleDeleteLoadedDocument = async (doc: Document) => {
-    const confirmed = window.confirm(`Remove "${doc.title}" from the loaded documents list?\n\nThis only removes the saved in-app copy. It will not delete the original file.`);
-    if (!confirmed) return;
-
     await deleteSavedDocument(doc.id);
     removeDocument(doc.id);
+    setPendingDeleteDocumentId((current) => (current === doc.id ? null : current));
   };
 
   // Speech synthesis handlers
@@ -3661,14 +3660,14 @@ writes / wrote / written / write`;
                     <button
                       key={`${entry.paragraphIndex}-${idx}`}
                       onClick={() => handleJumpToParagraph(entry.paragraphIndex)}
-                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-hover flex items-start gap-2"
+                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-hover flex items-start gap-2 min-w-0"
                       style={{ paddingLeft: `${0.75 + Math.max(0, entry.level - 1) * 0.85}rem` }}
                       title={entry.title}
                     >
                       <span className="text-[10px] font-semibold text-stone-500 min-w-[28px] pt-0.5">
                         H{entry.level}
                       </span>
-                      <span className={`flex-1 ${entry.level === 1 ? 'font-bold' : entry.level === 2 ? 'font-semibold' : 'text-sm'}`}>
+                      <span className={`flex-1 min-w-0 truncate ${entry.level === 1 ? 'font-bold' : entry.level === 2 ? 'font-semibold' : 'text-sm'}`}>
                         {entry.title}
                       </span>
                     </button>
@@ -3680,14 +3679,23 @@ writes / wrote / written / write`;
                   {documents.map((doc: Document) => (
                     <div
                       key={doc.id}
-                      onClick={() => setCurrentDocument(doc.id)}
+                      onClick={() => {
+                        if (pendingDeleteDocumentId === doc.id) return;
+                        setCurrentDocument(doc.id);
+                      }}
                       onContextMenu={(e) => {
                         e.preventDefault();
-                        void handleDeleteLoadedDocument(doc);
+                        setPendingDeleteDocumentId((current) => (current === doc.id ? null : doc.id));
                       }}
-                      className={`px-3 py-2 rounded-lg ${doc.id === currentDocumentId ? 'bg-active font-bold' : 'hover:bg-hover'} flex items-center justify-between cursor-pointer`}
+                      className={`px-3 py-2 rounded-lg flex items-center justify-between gap-2 cursor-pointer ${
+                        pendingDeleteDocumentId === doc.id
+                          ? 'bg-red-50 border border-red-200'
+                          : doc.id === currentDocumentId
+                            ? 'bg-active font-bold'
+                            : 'hover:bg-hover'
+                      }`}
                     >
-                      <span className="flex items-center gap-2">
+                      <span className="flex items-center gap-2 min-w-0 flex-1">
                         <span className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${
                           doc.type === 'epub'
                             ? 'bg-amber-100 text-amber-800'
@@ -3697,10 +3705,25 @@ writes / wrote / written / write`;
                         }`}>
                           {doc.type === 'epub' ? 'EPUB' : doc.format === 'markdown' ? 'MD' : 'TXT'}
                         </span>
-                        {doc.title}
+                        <span className="truncate">{doc.title}</span>
                       </span>
-                      {doc.type === 'epub' && doc.chapters && (
+                      {pendingDeleteDocumentId === doc.id ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleDeleteLoadedDocument(doc);
+                          }}
+                          className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-red-600 text-white hover:bg-red-700 flex-shrink-0"
+                          title="Remove from loaded documents"
+                        >
+                          ×
+                        </button>
+                      ) : doc.type === 'epub' && doc.chapters ? (
                         <span className="text-xs text-muted">{doc.chapters.length} ch</span>
+                      ) : null}
+                      {pendingDeleteDocumentId !== doc.id && (
+                        <span className="sr-only">Right click to show remove action</span>
                       )}
                     </div>
                   ))}
