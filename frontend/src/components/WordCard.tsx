@@ -61,7 +61,16 @@ export default function WordCard({ annotation, displayWord, isLearnt, onClose, o
   const regenerateWord = primarySurfaceForm || cardDisplayWord;
   const frequencyLabel = annotation.bncRank && annotation.bncRank > 0
     ? `BNC #${annotation.bncRank}`
-    : (annotation.level || '');
+    : '50k+';
+  const frequencyBadgeClass = annotation.bncRank && annotation.bncRank > 0
+    ? annotation.bncRank <= 10000
+      ? 'bg-emerald-100 text-emerald-700'
+      : annotation.bncRank <= 30000
+        ? 'bg-lime-100 text-lime-700'
+        : annotation.bncRank <= 50000
+          ? 'bg-amber-100 text-amber-700'
+          : 'bg-orange-100 text-orange-700'
+    : 'bg-orange-100 text-orange-700';
 
   useEffect(() => {
     if (!shouldDebugWord(displayWord, annotation.word, annotation.baseForm, lemmaWord, primarySurfaceForm)) {
@@ -808,7 +817,7 @@ export default function WordCard({ annotation, displayWord, isLearnt, onClose, o
               </button>
             )}
             {frequencyLabel && (
-              <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full font-semibold">
+              <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${frequencyBadgeClass}`}>
                 {frequencyLabel}
               </span>
             )}

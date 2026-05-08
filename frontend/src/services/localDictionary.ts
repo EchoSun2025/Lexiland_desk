@@ -76,6 +76,7 @@ class LocalDictionaryService {
 
     try {
       const dictionaries = [
+        '/dictionaries/core-50000.json',
         '/dictionaries/core-30000.json',
         '/dictionaries/core-10000.json',
         '/dictionaries/core-5000.json',
@@ -204,6 +205,8 @@ class LocalDictionaryService {
         ? entry.pos
         : mappedEntry?.pos || entry.pos || 'unknown';
     const wordForms = this.getWordForms(resolvedBaseForm);
+    const baseEntry = this.dictionary.get(resolvedBaseForm);
+    const resolvedBncRank = Number(baseEntry?.bncRank || entry.bncRank || 0) || undefined;
 
     const annotation = {
       word: lowerWord,
@@ -213,7 +216,7 @@ class LocalDictionaryService {
       definition: entry.definition || '',
       example: entry.examples?.[0] || '',
       level: entry.level || 'B2',
-      bncRank: Number(entry.bncRank || 0) || undefined,
+      bncRank: resolvedBncRank,
       partOfSpeech: resolvedPartOfSpeech,
       wordForms: wordForms.length > 0 ? wordForms : undefined,
     };

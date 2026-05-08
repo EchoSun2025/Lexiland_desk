@@ -650,6 +650,7 @@ function App() {
           if (
             repaired.baseForm === annotation.baseForm &&
             repairedSurfaceWord === currentSurfaceWord &&
+            (repaired.bncRank || 0) === (((annotation as WordAnnotation).bncRank) || 0) &&
             repaired.partOfSpeech === annotation.partOfSpeech &&
             repairedCardIdentity === currentCardIdentity
           ) {
@@ -3135,6 +3136,21 @@ writes / wrote / written / write`;
                 <div className="min-w-0 flex-shrink">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-bold text-sm flex-shrink-0">{item.displayLabel || collapsedLemmaWord}</span>
+                    <span
+                      className={`text-[11px] font-semibold flex-shrink-0 ${
+                        wordAnnotation.bncRank && wordAnnotation.bncRank > 0
+                          ? wordAnnotation.bncRank <= 10000
+                            ? 'text-emerald-600'
+                            : wordAnnotation.bncRank <= 30000
+                              ? 'text-lime-600'
+                              : wordAnnotation.bncRank <= 50000
+                                ? 'text-amber-600'
+                                : 'text-orange-600'
+                          : 'text-orange-600'
+                      }`}
+                    >
+                      {wordAnnotation.bncRank && wordAnnotation.bncRank > 0 ? `#${wordAnnotation.bncRank}` : '50k+'}
+                    </span>
                   </div>
                 </div>
 
