@@ -22,7 +22,10 @@ export interface LearntWord {
 
 export interface CachedAnnotation {
   word: string;
+  cardKey?: string;
+  lemmaWord?: string;
   baseForm?: string;
+  bncRank?: number;
   ipa: string;
   chinese: string;
   definition: string;
@@ -273,17 +276,23 @@ export async function batchAddKnownWords(words: string[], level?: string): Promi
 /**
  * Cache an annotation in IndexedDB
  */
-export async function cacheAnnotation(word: string, annotation: Omit<CachedAnnotation, 'word' | 'cachedAt'>): Promise<void> {
+export async function cacheAnnotation(
+  word: string,
+  annotation: Omit<CachedAnnotation, 'word' | 'cachedAt'> & { word?: string },
+): Promise<void> {
+  const storageKey = word.toLowerCase();
   const cachedAnnotation = ensureEncounteredMeanings({
-    word: word.toLowerCase(),
     ...annotation,
+    word: storageKey,
+    cardKey: annotation.cardKey || storageKey,
+    lemmaWord: annotation.lemmaWord || annotation.word,
     emojiImagePath: normalizeEmojiImagePaths(annotation.emojiImagePath),
     cachedAt: Date.now(),
   });
 
   if (shouldDebugWord(word, cachedAnnotation.baseForm, cachedAnnotation.word)) {
     logWordDebug('DB.cacheAnnotation', {
-      key: word.toLowerCase(),
+      key: storageKey,
       annotation: cachedAnnotation,
     });
   }
@@ -449,7 +458,7 @@ export async function addManualMeaning(word: string, meaning: Omit<CachedAnnotat
   const appended = appendManualMeaning(normalized, {
     ...normalized,
     ...meaning,
-    word,
+    word: normalized.word,
   });
 
   await db.annotations.put({
@@ -628,7 +637,10 @@ export async function exportUserData(): Promise<string> {
       })),
       annotations: annotations.map(a => ({
         word: a.word,
+        cardKey: a.cardKey,
+        lemmaWord: a.lemmaWord,
         baseForm: a.baseForm,
+        bncRank: a.bncRank,
         ipa: a.ipa,
         chinese: a.chinese,
         definition: a.definition,
@@ -724,11 +736,15 @@ export async function importUserData(jsonData: string): Promise<{ imported: numb
     if (data.data.annotations && Array.isArray(data.data.annotations)) {
       for (const item of data.data.annotations) {
         try {
-          const existing = await db.annotations.get(item.word);
+          const storageKey = (item.cardKey || item.word).toLowerCase();
+          const existing = await db.annotations.get(storageKey);
           if (!existing) {
             const importedAnnotation = {
-              word: item.word,
+              word: storageKey,
+              cardKey: item.cardKey || storageKey,
+              lemmaWord: item.lemmaWord || item.baseForm || item.word,
               baseForm: item.baseForm,
+              bncRank: item.bncRank,
               ipa: item.ipa,
               chinese: item.chinese,
               definition: item.definition,

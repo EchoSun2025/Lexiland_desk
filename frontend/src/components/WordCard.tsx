@@ -52,11 +52,16 @@ export default function WordCard({ annotation, displayWord, isLearnt, onClose, o
   const activeMeaning = getActiveMeaning(annotationWithMeanings);
   const fallbackLemmaWord = getCanonicalWord(annotation.word, annotation);
   const lemmaWord = annotation.baseForm?.trim().toLowerCase() || fallbackLemmaWord;
+  const annotationStorageKey = (annotation.cardKey || annotation.word).toLowerCase();
   const preferredSurfaceForm = displayWord || annotation.word;
   const encounteredSurfaceForms = getEncounteredSurfaceForms(annotationWithMeanings, preferredSurfaceForm);
   const primarySurfaceForm = encounteredSurfaceForms[0] || '';
+  const cardDisplayWord = preferredSurfaceForm || primarySurfaceForm || annotation.word;
   const normalizedIpa = annotation.ipa.replace(/^\/+|\/+$/g, '');
-  const regenerateWord = primarySurfaceForm || lemmaWord;
+  const regenerateWord = primarySurfaceForm || cardDisplayWord;
+  const frequencyLabel = annotation.bncRank && annotation.bncRank > 0
+    ? `BNC #${annotation.bncRank}`
+    : (annotation.level || '');
 
   useEffect(() => {
     if (!shouldDebugWord(displayWord, annotation.word, annotation.baseForm, lemmaWord, primarySurfaceForm)) {
@@ -133,7 +138,7 @@ export default function WordCard({ annotation, displayWord, isLearnt, onClose, o
   };
 
   const handlePronounce = () => {
-    const utterance = new SpeechSynthesisUtterance(lemmaWord);
+    const utterance = new SpeechSynthesisUtterance(cardDisplayWord);
     utterance.lang = 'en-US';
     utterance.rate = 0.9;
     window.speechSynthesis.speak(utterance);
@@ -142,9 +147,9 @@ export default function WordCard({ annotation, displayWord, isLearnt, onClose, o
   const handleSwitchMeaning = async (meaningId: string) => {
     if (meaningId === annotationWithMeanings.activeMeaningId) return;
     const projected = applyMeaningToAnnotation(annotationWithMeanings, meaningId);
-    updateAnnotation(annotation.word, projected);
-    await setActiveMeaning(annotation.word, meaningId, (updates) => {
-      updateAnnotation(annotation.word, updates);
+    updateAnnotation(annotationStorageKey, projected);
+    await setActiveMeaning(annotationStorageKey, meaningId, (updates) => {
+      updateAnnotation(annotationStorageKey, updates);
     });
   };
 
@@ -245,10 +250,10 @@ export default function WordCard({ annotation, displayWord, isLearnt, onClose, o
     }
 
     await addManualMeaning(
-      annotation.word,
+      annotationStorageKey,
       buildManualMeaningPayload(),
       (updates) => {
-        updateAnnotation(annotation.word, updates);
+        updateAnnotation(annotationStorageKey, updates);
       },
     );
 
@@ -261,8 +266,8 @@ export default function WordCard({ annotation, displayWord, isLearnt, onClose, o
       return;
     }
 
-    await updateActiveMeaningDetails(annotation.word, buildManualMeaningPayload(), (updates) => {
-      updateAnnotation(annotation.word, updates);
+    await updateActiveMeaningDetails(annotationStorageKey, buildManualMeaningPayload(), (updates) => {
+      updateAnnotation(annotationStorageKey, updates);
     });
 
     resetManualMeaningForm();
@@ -323,8 +328,8 @@ export default function WordCard({ annotation, displayWord, isLearnt, onClose, o
         setImageSource(source);
         
         // 添加到图片数组（不存模型信息，因为是 Unsplash）
-        await addEmojiImagePathToActiveMeaning(annotation.word, imagePath, undefined, (updates) => {
-          updateAnnotation(annotation.word, updates);
+        await addEmojiImagePathToActiveMeaning(annotationStorageKey, imagePath, undefined, (updates) => {
+          updateAnnotation(annotationStorageKey, updates);
         });
         setUnsplashLocked(true);
         console.log('[Image Search Debug] Image found and saved:', {
@@ -397,8 +402,8 @@ export default function WordCard({ annotation, displayWord, isLearnt, onClose, o
       setImageSource('clipboard');
 
       // Store with a model marker so reload can distinguish clipboard source
-      await addEmojiImagePathToActiveMeaning(annotation.word, imagePath, 'web-clipboard', (updates) => {
-        updateAnnotation(annotation.word, updates);
+      await addEmojiImagePathToActiveMeaning(annotationStorageKey, imagePath, 'web-clipboard', (updates) => {
+        updateAnnotation(annotationStorageKey, updates);
       });
       setUnsplashLocked(false);
 
@@ -441,8 +446,8 @@ export default function WordCard({ annotation, displayWord, isLearnt, onClose, o
       setDisplayedEmoji(imagePath);
       setImageSource('clipboard');
 
-      await addEmojiImagePathToActiveMeaning(annotation.word, imagePath, 'web-clipboard', (updates) => {
-        updateAnnotation(annotation.word, updates);
+      await addEmojiImagePathToActiveMeaning(annotationStorageKey, imagePath, 'web-clipboard', (updates) => {
+        updateAnnotation(annotationStorageKey, updates);
       });
       setUnsplashLocked(false);
 
@@ -479,8 +484,8 @@ export default function WordCard({ annotation, displayWord, isLearnt, onClose, o
         setImageSource('ai');
         
         // 添加到图片数组（包含模型信息）
-        await addEmojiImagePathToActiveMeaning(annotation.word, imagePath, model, (updates) => {
-          updateAnnotation(annotation.word, updates);
+        await addEmojiImagePathToActiveMeaning(annotationStorageKey, imagePath, model, (updates) => {
+          updateAnnotation(annotationStorageKey, updates);
         });
         console.log('[AI Generate] Image created:', annotation.word, imagePath, 'Model:', model);
       } else {
@@ -548,8 +553,8 @@ export default function WordCard({ annotation, displayWord, isLearnt, onClose, o
     setImageSource(null);
     
     // 保存到数据库
-    await updateEmoji(annotation.word, emoji, (updates) => {
-      updateAnnotation(annotation.word, updates);
+    await updateEmoji(annotationStorageKey, emoji, (updates) => {
+      updateAnnotation(annotationStorageKey, updates);
     });
     setUnsplashLocked(false);
     console.log('[Emoji Manual] Selected:', annotation.word, emoji);
@@ -770,13 +775,7 @@ export default function WordCard({ annotation, displayWord, isLearnt, onClose, o
               )}
             </div>
             <span className="flex flex-wrap items-baseline justify-center gap-x-2 gap-y-1">
-              <span>{lemmaWord}</span>
-              {primarySurfaceForm && (
-                <span className="text-sm text-gray-500 font-normal">
-                  {primarySurfaceForm}
-                  {normalizedIpa && <span className="ml-1">/{normalizedIpa}/</span>}
-                </span>
-              )}
+              <span>{cardDisplayWord}</span>
             </span>
           </h3>
           {emojiError && (
@@ -799,7 +798,7 @@ export default function WordCard({ annotation, displayWord, isLearnt, onClose, o
           )}
           <div className="flex items-center justify-center gap-3 mt-1">
             {/* Clickable IPA for pronunciation */}
-            {!primarySurfaceForm && normalizedIpa && (
+            {normalizedIpa && (
               <button
                 onClick={handlePronounce}
                 className="text-sm text-blue-600 hover:text-blue-800 hover:underline cursor-pointer transition-colors"
@@ -808,9 +807,11 @@ export default function WordCard({ annotation, displayWord, isLearnt, onClose, o
                 /{normalizedIpa}/
               </button>
             )}
-            <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full font-semibold">
-              {annotation.level}
-            </span>
+            {frequencyLabel && (
+              <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full font-semibold">
+                {frequencyLabel}
+              </span>
+            )}
             <span className="text-xs text-gray-600 font-medium">{getDetailedPartOfSpeech(annotation)}</span>
           </div>
           {encounteredSurfaceForms.length > 0 && (
@@ -838,8 +839,8 @@ export default function WordCard({ annotation, displayWord, isLearnt, onClose, o
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                if (confirm(`Delete "${lemmaWord}" from cards and add to known words?`)) {
-                  onDelete(lemmaWord);
+                if (confirm(`Delete "${cardDisplayWord}" from cards and add to known words?`)) {
+                  onDelete(annotationStorageKey);
                 }
               }}
               className="text-gray-400 hover:text-red-600 text-lg leading-none px-2"
@@ -1138,8 +1139,8 @@ export default function WordCard({ annotation, displayWord, isLearnt, onClose, o
 
       <CardNotes
         cardType="word"
-        cardKey={annotation.word.toLowerCase()}
-        cardText={lemmaWord}
+        cardKey={annotationStorageKey}
+        cardText={cardDisplayWord}
         context={annotation.sentence}
       />
     </div>

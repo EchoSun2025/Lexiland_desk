@@ -11,7 +11,7 @@ import { localDictionary } from './services/localDictionary'
 import { exportAnnotatedBook } from './services/bookExport'
 import { exportLLIFString } from './services/llifConverter'
 import { getWordEmoji, getAllEmojiKeywords } from './utils/emojiHelper'
-import { applyMeaningToAnnotation, findAnnotationEntry, findBestMeaningIdForSentence, getCanonicalWord, getEncounteredSurfaceForms, mergeAnnotationMeanings } from './utils/wordMeanings'
+import { applyMeaningToAnnotation, findAnnotationEntry, findBestMeaningIdForSentence, getEncounteredSurfaceForms, mergeAnnotationMeanings } from './utils/wordMeanings'
 import { logWordDebug, shouldDebugWord } from './utils/wordDebug'
 
 const keywordToEmoji = getAllEmojiKeywords();
@@ -28,6 +28,8 @@ type ReviewCardItem =
       word: string;
       normalizedWord: string;
       cardKey: string;
+      lookupKey: string;
+      displayLabel: string;
       annotation: WordAnnotation;
       cachedAt: number;
     }
@@ -36,6 +38,7 @@ type ReviewCardItem =
       word: string;
       normalizedWord: string;
       cardKey: string;
+      lookupKey: string;
       annotation: PhraseAnnotation;
       cachedAt: number;
     };
@@ -79,6 +82,58 @@ function getStoredNumber(key: string, fallback: number): number {
 
 function normalizeDocumentTitle(value?: string): string {
   return (value || '').trim().toLowerCase();
+}
+
+function normalizeWordFormValue(value?: string): string {
+  return (value || '').trim().toLowerCase();
+}
+
+function getWordCardIdentity(
+  annotation: Pick<WordAnnotation, 'word' | 'baseForm' | 'partOfSpeech' | 'definition' | 'cardKey' | 'wordForms' | 'encounteredForms'>,
+  surfaceWord?: string,
+): string {
+  if (annotation.cardKey && !annotation.cardKey.includes('__')) {
+    return annotation.cardKey.toLowerCase();
+  }
+
+  return normalizeWordFormValue(surfaceWord) || normalizeWordFormValue(annotation.word);
+}
+
+function getWordCardDisplayLabel(
+  annotation: Pick<WordAnnotation, 'word' | 'baseForm' | 'partOfSpeech' | 'definition' | 'wordForms' | 'encounteredForms'>,
+): string {
+  return annotation.word;
+}
+
+function buildEncounteredForms(
+  surfaceWord: string,
+  annotation: Pick<WordAnnotation, 'word' | 'baseForm' | 'wordForms' | 'encounteredForms'>,
+  existingForms: string[] = [],
+): string[] {
+  const normalizedSurface = normalizeWordFormValue(surfaceWord);
+  const normalizedWord = normalizeWordFormValue(annotation.word);
+
+  return Array.from(
+    new Set(
+      [normalizedSurface, normalizedWord, ...existingForms]
+        .map(normalizeWordFormValue)
+        .filter(form => Boolean(form) && (form === normalizedSurface || form === normalizedWord)),
+    ),
+  );
+}
+
+function getKnownFormsForAnnotation(annotation?: Pick<WordAnnotation, 'word' | 'baseForm' | 'encounteredForms'>): string[] {
+  if (!annotation) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      [annotation.word, annotation.baseForm, ...(annotation.encounteredForms || [])]
+        .map(normalizeWordFormValue)
+        .filter(Boolean),
+    ),
+  );
 }
 
 function App() {
@@ -215,7 +270,7 @@ function App() {
   const [showSettings, setShowSettings] = useState(false); // 闂傚倸鍊峰ù鍥х暦閸偅鍙忕€规洖娲ㄩ惌鍡椕归敐鍫綈婵炲懐濮撮湁闁绘ê妯婇崕鎰版煕鐎ｅ吀閭柡灞剧洴閸╁嫰宕橀浣割潓婵＄偑鍊戦崕閬嶆偋閹捐钃熼柡鍥风磿閻も偓婵犵數濮撮崐鎼佸煕婢跺瞼纾?
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; pIndex: number; sIndex: number; sentenceText?: string; focusWords?: string[] } | null>(null); // 闂傚倸鍊搁崐椋庣矆娓氣偓楠炲鏁撻悩鍐蹭画闂佹寧姊婚弲顐ょ不閹€鏀介柣妯哄级閹兼劙鏌＄€ｂ晝鍔嶉柕鍥ゅ楠炴﹢宕￠悙鍏哥棯闂備焦鎮堕崐鏍哄Ο鍏煎床婵犻潧娲ㄧ弧鈧梺绋挎湰绾板秴鈻撻鐘电＝濞达絾褰冩禍?
   const [expandedCardKeys, setExpandedCardKeys] = useState<Set<string>>(new Set());
-  const [collapsedImageMenu, setCollapsedImageMenu] = useState<{ panel: 'emoji' | 'web'; word: string; top: number; left: number } | null>(null);
+  const [collapsedImageMenu, setCollapsedImageMenu] = useState<{ panel: 'emoji' | 'web'; word: string; cardLookupKey: string; top: number; left: number } | null>(null);
   const [collapsedEmojiSearchQuery, setCollapsedEmojiSearchQuery] = useState('');
   const [collapsedGoogleKeyword, setCollapsedGoogleKeyword] = useState('');
   const [collapsedClipboardSaving, setCollapsedClipboardSaving] = useState(false);
@@ -285,15 +340,17 @@ function App() {
     const seenWords = new Set<string>();
 
     for (const annotation of annotations.values()) {
-      const normalizedWord = annotation.word.toLowerCase();
-      if (seenWords.has(normalizedWord)) continue;
-      seenWords.add(normalizedWord);
+      const wordCardIdentity = getWordCardIdentity(annotation);
+      if (seenWords.has(wordCardIdentity)) continue;
+      seenWords.add(wordCardIdentity);
 
       items.push({
         type: 'word',
         word: annotation.word,
-        normalizedWord,
-        cardKey: `word-${annotation.word}`,
+        normalizedWord: wordCardIdentity,
+        cardKey: `word-${wordCardIdentity}`,
+        lookupKey: wordCardIdentity,
+        displayLabel: getWordCardDisplayLabel(annotation),
         annotation,
         cachedAt: annotation.cachedAt || 0,
       });
@@ -306,6 +363,7 @@ function App() {
         word: annotation.phrase || phraseKey,
         normalizedWord: phraseKey,
         cardKey: `${cardType}-${phraseKey}`,
+        lookupKey: phraseKey,
         annotation,
         cachedAt: annotation.cachedAt || 0,
       });
@@ -547,9 +605,7 @@ function App() {
       const annotation = selectedEntry.annotation;
       if (annotation && (annotation as any).definition) {
         // 濠电姷鏁告慨鐑藉极閹间礁纾块柟瀵稿Х缁€濠囨煃瑜滈崜姘跺Φ閸曨垰鍗抽柛鈩冾殔椤忣亪鏌涘▎蹇曠闁哄矉缍侀獮鍥敆娴ｇ懓鍓电紓鍌欒閸嬫捇鏌涢埄鍐姇闁绘挻绋戦…璺ㄦ崉閻氭潙濮涙繛瀵稿О閸ㄤ粙寮诲☉婊庢Щ闂佹寧娲︽禍顏勵嚕鐠囨祴妲堟俊顖炴敱閻庡姊洪崷顓炲妺闁搞劌銈稿顐﹀垂椤曞懏瀵岄梺闈涚墕濡瑩鎮￠妷锔剧婵炴潙顑嗗▍濠傗攽閿涘嫭鏆鐐叉喘瀵爼宕归鑲┿偖濠碉紕鍋戦崐鏇犳崲閹邦儵娑樷槈閳跺搫娲、娆撴偩瀹€鈧鏇㈡煛婢跺﹦澧曞褌绮欏畷姘舵偋閸粎绠氬銈嗗姧缁查箖鍩涢幒鏃傜＜妞ゆ洖鎳庨獮妤冣偓鍨緲鐎氫即鐛崶顒夋晣闁绘劕顕弶鐟扳攽閿涘嫬浜奸柛濠冩礈閹广垽骞囬鐟颁壕婵鍘ф晶鍙夈亜閵堝懎顏慨濠呮閹风娀鎳犻鍌ゅ敽闂備胶顭堥鍥磻濞戞艾寮查梻浣告惈缁嬩線宕戦崨杈剧稏?
-        const canonicalHistoryWord =
-          (annotation as WordAnnotation).word?.toLowerCase() ||
-          getCanonicalWord(selectedEntry.key, annotation as WordAnnotation);
+        const canonicalHistoryWord = getWordCardIdentity(annotation as WordAnnotation);
         if (selectedEntry.key !== canonicalHistoryWord) {
           removeFromCardHistory(selectedEntry.key);
         }
@@ -584,11 +640,18 @@ function App() {
             return;
           }
 
-          const repairedCanonicalWord = getCanonicalWord(normalized, repaired);
+          const repairedSurfaceWord = normalizeWordFormValue(repaired.word) || normalized;
+          const repairedCardIdentity = getWordCardIdentity({
+            ...repaired,
+            word: repairedSurfaceWord,
+          }, normalized);
+          const currentCardIdentity = getWordCardIdentity(annotation, normalized);
+          const currentSurfaceWord = normalizeWordFormValue(annotation.word);
           if (
             repaired.baseForm === annotation.baseForm &&
-            repairedCanonicalWord === annotation.word.toLowerCase() &&
-            repaired.partOfSpeech === annotation.partOfSpeech
+            repairedSurfaceWord === currentSurfaceWord &&
+            repaired.partOfSpeech === annotation.partOfSpeech &&
+            repairedCardIdentity === currentCardIdentity
           ) {
             return;
           }
@@ -596,16 +659,15 @@ function App() {
           const repairedAnnotation: WordAnnotation = {
             ...annotation,
             ...repaired,
-            word: repairedCanonicalWord,
+            word: repairedSurfaceWord,
+            cardKey: repairedCardIdentity,
             sentence: annotation.sentence,
             documentTitle: annotation.documentTitle,
-            encounteredForms: Array.from(
-              new Set([normalized, repairedCanonicalWord, ...(annotation.encounteredForms || [])]),
-            ),
+            encounteredForms: buildEncounteredForms(normalized, repaired, annotation.encounteredForms || []),
             cachedAt: Date.now(),
           };
 
-          if (shouldDebugWord(normalized, repaired.baseForm, repairedCanonicalWord)) {
+          if (shouldDebugWord(normalized, repaired.baseForm, repairedSurfaceWord)) {
             logWordDebug('App.handleWordClick:repair-existing-card', {
               normalized,
               previousAnnotation: annotation,
@@ -614,18 +676,14 @@ function App() {
             });
           }
 
-          if (wordEntry?.key && wordEntry.key !== repairedCanonicalWord && wordEntry.key !== normalized) {
+          if (wordEntry?.key && wordEntry.key !== repairedCardIdentity && wordEntry.key !== normalized) {
             removeAnnotation(wordEntry.key);
             await deleteAnnotation(wordEntry.key);
           }
 
-          addAnnotation(repairedCanonicalWord, repairedAnnotation);
-          await cacheAnnotation(repairedCanonicalWord, repairedAnnotation);
+          addAnnotation(repairedCardIdentity, repairedAnnotation);
+          await cacheAnnotation(repairedCardIdentity, repairedAnnotation);
 
-          if (repairedCanonicalWord !== normalized) {
-            addAnnotation(normalized, repairedAnnotation);
-            await cacheAnnotation(normalized, repairedAnnotation);
-          }
         })();
       }
 
@@ -649,7 +707,7 @@ function App() {
           annotation: wordEntry?.annotation || null,
         });
       }
-      setSelectedWord(normalized);
+      setSelectedWord(wordEntry.key);
       return;
     }
 
@@ -957,15 +1015,24 @@ function App() {
         }
         
         // 婵犵數濮烽弫鎼佸磿閹寸姴绶ら柦妯侯棦濞差亝鏅滈柣鎰靛墮鎼村﹪姊虹粙璺ㄧ伇闁稿鍋ゅ畷鎴﹀Χ婢跺鍘繝鐢靛仧閸嬫挸鈻嶉崨瀛樼厱闁硅埇鍔屾禍楣冩⒒閸屾瑧鍔嶉柟顔肩埣瀹曟洟顢涢悙鑼槷閻庡箍鍎遍ˇ顖毿?
-        const canonicalWord = getCanonicalWord(wordItem.word, annotationWithContext);
-        const existingAnnotation = annotations.get(canonicalWord);
+        const canonicalWord = normalizeWordFormValue(wordItem.word);
+        const wordCardIdentity = getWordCardIdentity({
+          ...annotationWithContext,
+          word: canonicalWord,
+        }, wordItem.word);
+        const existingAnnotation = annotations.get(wordCardIdentity);
         const cachedAt = Date.now();
         const mergedAnnotation = mergeAnnotationMeanings(existingAnnotation as WordAnnotation | undefined, {
           ...annotationWithContext,
           word: canonicalWord,
-          encounteredForms: Array.from(new Set([wordItem.word, ...(annotationWithContext.encounteredForms || [])])),
+          cardKey: wordCardIdentity,
+          encounteredForms: buildEncounteredForms(wordItem.word, {
+            ...annotationWithContext,
+            word: canonicalWord,
+          }, existingAnnotation?.encounteredForms || []),
           cachedAt,
         }).annotation;
+
         if (shouldDebugWord(wordItem.word, canonicalWord, mergedAnnotation.baseForm, mergedAnnotation.word)) {
           logWordDebug('App.annotateWords:canonicalized', {
             surfaceWord: wordItem.word,
@@ -974,18 +1041,18 @@ function App() {
             mergedAnnotation,
           });
         }
-        addAnnotation(canonicalWord, mergedAnnotation);
-        await cacheAnnotation(canonicalWord, mergedAnnotation);
+        addAnnotation(wordCardIdentity, mergedAnnotation);
+        await cacheAnnotation(wordCardIdentity, mergedAnnotation);
         
         // 闂傚倸鍊峰ù鍥х暦閸偅鍙忕€规洖娲﹂浠嬫煏閸繃澶勬い顐ｆ礋閺岋繝宕堕妷銉т痪闂佺顑傞弲娑㈠煘閹达附鍋愰柧蹇ｅ亞濞堛倝鎮楃憴鍕矮缂佽埖宀稿濠氭晸閻樻煡鍞堕梺闈涚箚閸撴繂袙閸曨厾纾藉ù锝呮惈灏忕紓渚囧枟閻熲晠鐛崘銊庢棃鍩€椤掑嫬鐓″璺号堥弸搴㈢箾閸℃ê鍧婇柛瀣尵閹瑰嫰濡歌閿涙粌顪冮妶鍡樼闁瑰啿閰ｉ幃姗€鏁愭径瀣幍?emoji
         const defaultEmoji = getWordEmoji(mergedAnnotation);
-        await updateEmoji(canonicalWord, defaultEmoji, (updates) => {
-          updateAnnotation(canonicalWord, updates);
+        await updateEmoji(wordCardIdentity, defaultEmoji, (updates) => {
+          updateAnnotation(wordCardIdentity, updates);
         });
         console.log(`[App] Saved default emoji for "${wordItem.word}": ${defaultEmoji}`);
         
         // 濠电姷鏁告慨鐑藉极閹间礁纾块柟瀵稿Х缁€濠囨煃瑜滈崜姘跺Φ閸曨垰鍗抽柛鈩冾殔椤忣亪鏌涘▎蹇曠闁哄矉缍侀獮鍥敆娴ｇ懓鍓电紓鍌欒閸嬫捇鏌涢埄鍐姇闁绘挻绋戦…璺ㄦ崉閻氭潙濮涙繛瀵稿О閸ㄤ粙寮诲☉婊庢Щ闂佹寧娲︽禍顏勵嚕鐠囨祴妲堟俊顖炴敱閻庡姊洪崷顓炲妺闁搞劌銈稿顐﹀垂椤曞懏瀵岄梺闈涚墕濡瑩鎮￠妷锔剧婵炴潙顑嗗▍濠傗攽閿涘嫭鏆鐐叉喘瀵爼宕归鑲┿偖濠碉紕鍋戦崐鏇犳崲閹邦儵娑樷槈閳跺搫娲崺锟犲川椤旇瀚肩紓浣鸿檸閸樺ジ骞婃惔銊﹀亗闁规壆澧楅悡銉︽叏濡潡鍝洪柛鐘冲姍閺岋絽螖閳ь剟鎮ф繝鍥佸宕奸妷锔惧幍濡炪倖妫侀～澶娾枍婵犲洦鐓欓柧蹇ｅ亞閻矂鏌涢悩璇у伐閾伙綁寮堕悙瀛樼凡妞ゃ儲鑹鹃埞鎴︽倷鐎涙ê闉嶉梺鐓庣秺缁犳牠寮崘顔芥櫆闁告挆鍛姸?
-        addToCardHistory('word', canonicalWord);
+        addToCardHistory('word', wordCardIdentity);
         
         newAnnotations.push(mergedAnnotation);
         successfullyAnnotated.push({ type: 'word', word: wordItem.word });
@@ -1419,17 +1486,27 @@ function App() {
         const result = await annotateWord(word, level, sentence);
         if (result.success && result.data) {
           const surfaceWord = word.toLowerCase();
-          const canonicalWord = getCanonicalWord(surfaceWord, result.data);
-          const surfaceEntry = annotations.get(surfaceWord) as WordAnnotation | undefined;
-          const canonicalEntry = annotations.get(canonicalWord) as WordAnnotation | undefined;
+          const canonicalWord = surfaceWord;
+          const regeneratedCardIdentity = getWordCardIdentity({
+            ...result.data,
+            word: canonicalWord,
+          }, surfaceWord);
+          const surfaceEntry = findAnnotationEntry(annotations, surfaceWord)?.annotation as WordAnnotation | undefined;
+          const canonicalEntry = annotations.get(regeneratedCardIdentity) as WordAnnotation | undefined;
           const existingAnnotation = canonicalEntry || surfaceEntry;
           const annotationWithContext: WordAnnotation = {
             ...result.data,
             word: canonicalWord,
+            cardKey: regeneratedCardIdentity,
             sentence,
             documentTitle: currentDocument?.title || 'Unknown',
             wordForms: result.data.wordForms ?? existingAnnotation?.wordForms,
-            encounteredForms: Array.from(new Set([surfaceWord, canonicalWord, ...(existingAnnotation?.encounteredForms || [])])),
+            encounteredForms: buildEncounteredForms(surfaceWord, {
+              ...result.data,
+              word: canonicalWord,
+              encounteredForms: result.data.encounteredForms,
+              wordForms: result.data.wordForms ?? existingAnnotation?.wordForms,
+            }, existingAnnotation?.encounteredForms || []),
             cachedAt: Date.now(),
           };
           const mergedAnnotation = mergeAnnotationMeanings(
@@ -1438,9 +1515,8 @@ function App() {
           ).annotation;
           const normalizedMergedAnnotation: WordAnnotation = {
             ...mergedAnnotation,
-            encounteredForms: Array.from(
-              new Set([surfaceWord, canonicalWord, ...(mergedAnnotation.encounteredForms || [])]),
-            ),
+            cardKey: regeneratedCardIdentity,
+            encounteredForms: buildEncounteredForms(surfaceWord, mergedAnnotation, mergedAnnotation.encounteredForms || []),
           };
           if (shouldDebugWord(surfaceWord, canonicalWord, result.data.baseForm, normalizedMergedAnnotation.baseForm)) {
             logWordDebug('App.handleRegenerateAI:word-result', {
@@ -1451,12 +1527,8 @@ function App() {
               normalizedMergedAnnotation,
             });
           }
-          addAnnotation(canonicalWord, normalizedMergedAnnotation);
-          await cacheAnnotation(canonicalWord, normalizedMergedAnnotation);
-          if (surfaceWord !== canonicalWord) {
-            addAnnotation(surfaceWord, normalizedMergedAnnotation);
-            await cacheAnnotation(surfaceWord, normalizedMergedAnnotation);
-          }
+          addAnnotation(regeneratedCardIdentity, normalizedMergedAnnotation);
+          await cacheAnnotation(regeneratedCardIdentity, normalizedMergedAnnotation);
           alert('? AI re-generated successfully!');
         } else {
           console.error('[AI Regenerate] Failed:', result.error);
@@ -1601,71 +1673,43 @@ function App() {
     );
   };
 
-  const collectWordAliasGroup = (seedWords: Iterable<string>): Set<string> => {
-    const aliasWords = new Set(
-      Array.from(seedWords)
-        .map(word => word?.toLowerCase().trim())
-        .filter(Boolean) as string[],
-    );
-
-    let changed = true;
-    while (changed) {
-      changed = false;
-
-      for (const [key, candidate] of annotations.entries()) {
-        const candidateAliases = new Set(
-          [
-            key,
-            candidate.word,
-            candidate.baseForm,
-            ...(candidate.encounteredForms || []),
-          ]
-            .map(item => item?.toLowerCase().trim())
-            .filter(Boolean) as string[],
-        );
-
-        const overlaps = Array.from(candidateAliases).some(alias => aliasWords.has(alias));
-        if (!overlaps) {
-          continue;
-        }
-
-        for (const alias of candidateAliases) {
-          if (!aliasWords.has(alias)) {
-            aliasWords.add(alias);
-            changed = true;
-          }
-        }
-      }
-    }
-
-    return aliasWords;
-  };
-
-  const removeWordCardAliases = async (
-    aliasWords: Set<string>,
+  const removeWordCards = async (
+    cardKeys: Set<string>,
     options: { markAsKnown: boolean },
   ) => {
-    for (const alias of aliasWords) {
-      removeAnnotation(alias);
+    const normalizedCardKeys = Array.from(
+      new Set(
+        Array.from(cardKeys)
+          .map(normalizeWordFormValue)
+          .filter(Boolean),
+      ),
+    );
+
+    const knownForms = new Set<string>();
+
+    for (const cardKey of normalizedCardKeys) {
+      const annotation = annotations.get(cardKey) as WordAnnotation | undefined;
+      getKnownFormsForAnnotation(annotation).forEach(form => knownForms.add(form));
+      removeAnnotation(cardKey);
     }
 
-    for (const alias of aliasWords) {
-      await deleteAnnotation(alias);
+    for (const cardKey of normalizedCardKeys) {
+      await deleteAnnotation(cardKey);
     }
 
     if (options.markAsKnown) {
-      for (const alias of aliasWords) {
-        addKnownWord(alias);
-        await addKnownWordToDB(alias);
+      for (const form of knownForms) {
+        addKnownWord(form);
+        await addKnownWordToDB(form);
       }
     }
 
-    for (const alias of aliasWords) {
-      closeCard(`word-${alias}`);
-      removeFromCardHistory(alias);
+    for (const cardKey of normalizedCardKeys) {
+      closeCard(`word-${cardKey}`);
+      removeFromCardHistory(cardKey);
     }
 
-    if (selectedWord && aliasWords.has(selectedWord.toLowerCase())) {
+    if (selectedWord && normalizedCardKeys.includes(selectedWord.toLowerCase())) {
       setSelectedWord(null);
     }
   };
@@ -1673,28 +1717,16 @@ function App() {
   // Handle delete from cards
   const handleDeleteFromCards = async (word: string) => {
     try {
-      const entry = findAnnotationEntry(annotations, word.toLowerCase());
+      const directAnnotation = annotations.get(word.toLowerCase()) as WordAnnotation | undefined;
+      const entry = directAnnotation
+        ? { key: word.toLowerCase(), annotation: directAnnotation }
+        : findAnnotationEntry(annotations, word.toLowerCase());
       const annotation = entry?.annotation as WordAnnotation | undefined;
       const surfaceWord = word.toLowerCase();
-      const canonicalWord =
-        annotation?.word?.toLowerCase() ||
-        entry?.key ||
-        getCanonicalWord(surfaceWord, annotation);
-      const aliasWords = new Set(
-        [
-          surfaceWord,
-          canonicalWord,
-          annotation?.word,
-          annotation?.baseForm,
-          ...(annotation?.encounteredForms || []),
-        ]
-          .map(item => item?.toLowerCase().trim())
-          .filter(Boolean) as string[],
-      );
-      const expandedAliases = collectWordAliasGroup(aliasWords);
-      await removeWordCardAliases(expandedAliases, { markAsKnown: true });
+      const cardIdentity = annotation ? getWordCardIdentity(annotation) : surfaceWord;
+      await removeWordCards(new Set<string>([cardIdentity]), { markAsKnown: true });
 
-      console.log(`Deleted word card aliases: ${Array.from(expandedAliases).join(', ')}`);
+      console.log(`Deleted word card: ${cardIdentity}`);
     } catch (error) {
       console.error('Failed to delete from cards:', error);
     }
@@ -1703,17 +1735,17 @@ function App() {
   const handleDeleteSampleLemmaTestCards = async () => {
     try {
       const cachedAnnotations = await getAllCachedAnnotations();
-      const sampleSeeds = new Set<string>();
+      const sampleCardKeys = new Set<string>();
 
       for (const [key, annotation] of annotations.entries()) {
         if (!annotationBelongsToSampleLemmaTest(annotation)) {
           continue;
         }
 
-        [key, annotation.word, annotation.baseForm, ...(annotation.encounteredForms || [])]
-          .map(item => item?.toLowerCase().trim())
-          .filter(Boolean)
-          .forEach(alias => sampleSeeds.add(alias as string));
+        sampleCardKeys.add(getWordCardIdentity({
+          ...annotation,
+          cardKey: annotation.cardKey || key,
+        }));
       }
 
       for (const annotation of cachedAnnotations) {
@@ -1721,21 +1753,17 @@ function App() {
           continue;
         }
 
-        [annotation.word, annotation.baseForm, ...(annotation.encounteredForms || [])]
-          .map(item => item?.toLowerCase().trim())
-          .filter(Boolean)
-          .forEach(alias => sampleSeeds.add(alias as string));
+        sampleCardKeys.add(getWordCardIdentity(annotation));
       }
 
-      if (sampleSeeds.size === 0) {
+      if (sampleCardKeys.size === 0) {
         alert('No word cards found from "Sample Lemma Test".');
         return;
       }
 
-      const aliasWords = collectWordAliasGroup(sampleSeeds);
-      await removeWordCardAliases(aliasWords, { markAsKnown: false });
+      await removeWordCards(sampleCardKeys, { markAsKnown: false });
 
-      alert(`Deleted ${aliasWords.size} Sample Lemma Test word-card entries.`);
+      alert(`Deleted ${sampleCardKeys.size} Sample Lemma Test word cards.`);
     } catch (error) {
       console.error('Failed to delete Sample Lemma Test cards:', error);
       alert('Failed to delete Sample Lemma Test word cards.');
@@ -2275,10 +2303,21 @@ ${sortedWords.join(' ')}
       try {
         const cached = await getAllCachedAnnotations();
         console.log(`Loading ${cached.length} cached annotations from IndexedDB`);
-        cached.forEach(item => {
-          const annotation: WordAnnotation = {
-            word: item.word,
+        for (const item of cached) {
+          const sourceWord = normalizeWordFormValue(item.lemmaWord || item.word);
+          const canonicalWord = sourceWord;
+          const wordCardIdentity = getWordCardIdentity({
+            word: canonicalWord,
+            cardKey: item.cardKey,
             baseForm: item.baseForm,
+            partOfSpeech: item.partOfSpeech,
+            definition: item.definition,
+          }, sourceWord);
+          const annotation: WordAnnotation = {
+            word: canonicalWord,
+            cardKey: wordCardIdentity,
+            baseForm: item.baseForm,
+            bncRank: item.bncRank,
             ipa: item.ipa,
             chinese: item.chinese,
             definition: item.definition,
@@ -2293,6 +2332,12 @@ ${sortedWords.join(' ')}
             // 闂傚倸鍊搁崐椋庣矆娓氣偓楠炲鍨鹃幇浣圭稁缂傚倷鐒﹁摫闁告瑥绻橀弻鐔碱敍閿濆洣姹楅悷婊呭鐢帡鎮欐繝鍥ㄧ厪濠电倯鈧崑鎾绘煛鐎ｎ偆澧紒缁樼箞閹粙妫冨ù璁圭節閺屻倝宕橀懠顒€鐓熼梺璇″枤閸忔﹢鐛Ο鑲╃＜婵☆垳鍘ч獮鎰版⒒娴ｄ警鐒鹃柡鍫墰閸犲﹤顓兼径濠勵啇闂佽澹嗘晶妤呮偂閻斿吋鐓冩い鏍ㄧ〒閹冲啴鏌涢悢鍝勨枅鐎?
             sentence: item.sentence,
             documentTitle: item.documentTitle,
+            encounteredForms: buildEncounteredForms(sourceWord, {
+              word: canonicalWord,
+              baseForm: item.baseForm,
+              wordForms: item.wordForms,
+              encounteredForms: item.encounteredForms,
+            }),
             encounteredMeanings: item.encounteredMeanings,
             activeMeaningId: item.activeMeaningId,
             cachedAt: item.cachedAt,
@@ -2303,8 +2348,13 @@ ${sortedWords.join(' ')}
               hydratedAnnotation: annotation,
             });
           }
-          addAnnotation(item.word, annotation);
-        });
+          const storageKey = normalizeWordFormValue(item.word);
+          if (storageKey && storageKey !== wordCardIdentity) {
+            await cacheAnnotation(wordCardIdentity, annotation);
+            await deleteAnnotation(storageKey);
+          }
+          addAnnotation(wordCardIdentity, annotation);
+        }
         if (cached.length > 0) {
           console.log('[OK] Cached annotations loaded');
         }
@@ -2669,9 +2719,9 @@ writes / wrote / written / write`;
                   // Only show if not marked as known/learnt
                   if (!learntWords.has(word)) {
                     const entry = findAnnotationEntry(annotations, word);
-                    const canonicalHistoryWord =
-                      (entry?.annotation as WordAnnotation | undefined)?.word?.toLowerCase() ||
-                      getCanonicalWord(entry?.key || word, entry?.annotation as WordAnnotation | undefined);
+                    const canonicalHistoryWord = entry?.annotation
+                      ? getWordCardIdentity(entry.annotation as WordAnnotation)
+                      : word;
                     addToCardHistory('word', canonicalHistoryWord);
                   }
                 }
@@ -2734,7 +2784,7 @@ writes / wrote / written / write`;
     return results.slice(0, 120);
   };
 
-  const openCollapsedWebMenu = (e: React.MouseEvent, word: string) => {
+  const openCollapsedWebMenu = (e: React.MouseEvent, word: string, cardLookupKey: string) => {
     e.preventDefault();
     e.stopPropagation();
     const target = e.currentTarget as HTMLElement;
@@ -2751,13 +2801,13 @@ writes / wrote / written / write`;
     let top = rect.top;
     top = Math.max(padding, Math.min(top, window.innerHeight - panelHeight - padding));
     setCollapsedGoogleKeyword(`${word} photo`);
-    setCollapsedImageMenu({ panel: 'web', word, top, left });
+    setCollapsedImageMenu({ panel: 'web', word, cardLookupKey, top, left });
   };
 
   const handleCollapsedSelectEmoji = async (emoji: string) => {
     if (!collapsedImageMenu?.word) return;
-    await updateEmoji(collapsedImageMenu.word, emoji, (updates) => {
-      updateAnnotation(collapsedImageMenu.word, updates);
+    await updateEmoji(collapsedImageMenu.cardLookupKey, emoji, (updates) => {
+      updateAnnotation(collapsedImageMenu.cardLookupKey, updates);
     });
     setCollapsedUnsplashLockedWords(prev => {
       const next = new Set(prev);
@@ -2797,8 +2847,8 @@ writes / wrote / written / write`;
     if (!result.success || !result.data?.imageUrl) {
       throw new Error(result.error || 'Failed to save pasted image');
     }
-    await addEmojiImagePathToActiveMeaning(collapsedImageMenu.word, result.data.imageUrl, 'web-clipboard', (updates) => {
-      updateAnnotation(collapsedImageMenu.word, updates);
+    await addEmojiImagePathToActiveMeaning(collapsedImageMenu.cardLookupKey, result.data.imageUrl, 'web-clipboard', (updates) => {
+      updateAnnotation(collapsedImageMenu.cardLookupKey, updates);
     });
     setCollapsedUnsplashLockedWords(prev => {
       const next = new Set(prev);
@@ -2810,7 +2860,8 @@ writes / wrote / written / write`;
 
   const handleCollapsedUnsplashRightClick = async (
     e: React.MouseEvent,
-    word: string
+    word: string,
+    cardLookupKey: string,
   ) => {
     e.preventDefault();
     e.stopPropagation();
@@ -2821,8 +2872,8 @@ writes / wrote / written / write`;
     try {
       const result = await searchImage(word);
       if (result.success && result.data?.imageUrl) {
-        await addEmojiImagePathToActiveMeaning(word, result.data.imageUrl, undefined, (updates) => {
-          updateAnnotation(word, updates);
+        await addEmojiImagePathToActiveMeaning(cardLookupKey, result.data.imageUrl, undefined, (updates) => {
+          updateAnnotation(cardLookupKey, updates);
         });
         setCollapsedUnsplashLockedWords(prev => {
           const next = new Set(prev);
@@ -2971,7 +3022,7 @@ writes / wrote / written / write`;
             onClick={(e) => {
               e.stopPropagation();
               if (mode === 'read') {
-                removeFromCardHistory(item.word);
+                removeFromCardHistory(item.lookupKey);
               } else {
                 setReviewHiddenCardKeys(prev => {
                   const next = new Set(prev);
@@ -3027,9 +3078,8 @@ writes / wrote / written / write`;
               <div className="flex items-center gap-2 flex-wrap">
                 {(() => {
                   const wordAnnotation = annotation as WordAnnotation;
-                  const collapsedLemmaWord =
-                    wordAnnotation.baseForm?.trim().toLowerCase() ||
-                    getCanonicalWord(wordAnnotation.word, wordAnnotation);
+                  const wordCardLookupKey = wordAnnotation.cardKey || item.lookupKey;
+                  const collapsedLemmaWord = wordAnnotation.word;
                   const encounteredSurfaceForms = getEncounteredSurfaceForms(wordAnnotation, item.word);
 
                   return (
@@ -3037,10 +3087,10 @@ writes / wrote / written / write`;
                 <div
                   className="w-7 h-7 flex-shrink-0 flex items-center justify-center text-xl bg-gray-100 rounded hover:ring-2 hover:ring-blue-300 transition-all"
                   onClick={(e) => {
-                    openCollapsedWebMenu(e, item.word);
+                    openCollapsedWebMenu(e, item.word, wordCardLookupKey);
                   }}
                   onContextMenu={(e) => {
-                    void handleCollapsedUnsplashRightClick(e, item.word);
+                    void handleCollapsedUnsplashRightClick(e, item.word, wordCardLookupKey);
                   }}
                   onMouseDown={(e) => {
                     if (e.button !== 0) return;
@@ -3051,8 +3101,8 @@ writes / wrote / written / write`;
                         const sentence = (annotation as WordAnnotation).sentence || '';
                         const result = await generateEmojiImage(item.word, sentence);
                         if (result.success && result.data?.imageUrl) {
-                          await addEmojiImagePathToActiveMeaning(item.word, result.data.imageUrl, result.data.model, (updates) => {
-                            updateAnnotation(item.word, updates);
+                          await addEmojiImagePathToActiveMeaning(wordCardLookupKey, result.data.imageUrl, result.data.model, (updates) => {
+                            updateAnnotation(wordCardLookupKey, updates);
                           });
                         } else {
                           alert('Failed to generate AI image');
@@ -3084,7 +3134,7 @@ writes / wrote / written / write`;
 
                 <div className="min-w-0 flex-shrink">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-bold text-sm flex-shrink-0">{collapsedLemmaWord}</span>
+                    <span className="font-bold text-sm flex-shrink-0">{item.displayLabel || collapsedLemmaWord}</span>
                   </div>
                 </div>
 
@@ -3799,15 +3849,13 @@ writes / wrote / written / write`;
         {viewMode === 'read' && (
         <aside className="w-[360px] flex flex-col min-h-0 overflow-auto" style={{ minWidth: '360px' }}>
           {isLoadingAnnotation && (
-            <div className="text-center py-8 text-muted">
-              <div className="text-2xl mb-2">...</div>
-              <div>Loading annotation...</div>
+            <div className="border border-border rounded-2xl p-3 bg-white mb-3">
+              <div className="text-sm text-muted">Loading annotation...</div>
             </div>
           )}
 
           {/* Card History - 婵犵數濮烽弫鍛婃叏閻㈠壊鏁婇柡宥庡幖缁愭鏌″搴″季闁轰礁瀚伴弻娑㈠Ψ閵忊剝鐝旈梺鎼炲妽缁诲牓寮婚悢鐓庣闁逛即娼у▓顓㈡⒑閸涘﹦鎳冮柨鏇ㄤ邯瀵鈽夐姀鐘殿啋濠碉紕鍋熼崑鎾凰囨搴ｇ＜妞ゆ梻鍋撻弳顒佹叏婵犲啯銇濈€规洜鍏橀、妯款槼婵絽鐭傚铏圭矙濞嗘儳鍓遍梺鍦嚀濞差厼顕ｆ繝姘櫢闁绘ɑ鐓￠崬璺衡攽閻樿尙浠涢柛鏃€鐗滈悷褔姊虹拠鏌ヮ€楁繝鈧柆宥佲偓锕傚醇閵夆懇鍋撻敃鈧悾锟犲箥椤旇姤顔曢梻浣瑰缁诲倿藝椤栨粎涓嶉柣銏犳啞閻撴瑩鏌ｉ幋鐏活亪鎮橀妷鈺傜厾闁哄瀵ч崑銉︽叏?*/}
-          {!isLoadingAnnotation && (
-            <div className="border border-border rounded-2xl p-3 bg-white mb-3">
+          <div className="border border-border rounded-2xl p-3 bg-white mb-3">
               <div className="flex items-center justify-between mb-2">
                 <div className="text-xs text-muted">Cards ({cardHistory.length})</div>
                 {cardHistory.length > 0 && (
@@ -3854,7 +3902,7 @@ writes / wrote / written / write`;
                 <div className="space-y-2 max-h-[calc(100vh-200px)] overflow-y-auto">
                   {cardHistory.map((item: { type: LearningCardType; word: string; timestamp: number }) => {
                     const annotation = item.type === 'word' 
-                      ? findAnnotationEntry(annotations, item.word)?.annotation
+                      ? (annotations.get(item.word) || findAnnotationEntry(annotations, item.word)?.annotation)
                       : phraseAnnotations.get(item.word.toLowerCase());
 
                     if (!annotation) return null;
@@ -3862,9 +3910,11 @@ writes / wrote / written / write`;
                     const reviewItem: ReviewCardItem = item.type === 'word'
                       ? {
                           type: 'word',
-                          word: item.word,
-                          normalizedWord: item.word.toLowerCase(),
+                          word: (annotation as WordAnnotation).word,
+                          normalizedWord: getWordCardIdentity(annotation as WordAnnotation),
+                          lookupKey: item.word,
                           cardKey: `word-${item.word}`,
+                          displayLabel: getWordCardDisplayLabel(annotation as WordAnnotation),
                           annotation: annotation as WordAnnotation,
                           cachedAt: (annotation as WordAnnotation).cachedAt || 0,
                         }
@@ -3873,6 +3923,7 @@ writes / wrote / written / write`;
                           word: item.word,
                           normalizedWord: item.word.toLowerCase(),
                           cardKey: `${(annotation as PhraseAnnotation).cardType || item.type}-${item.word.toLowerCase()}`,
+                          lookupKey: item.word.toLowerCase(),
                           annotation: annotation as PhraseAnnotation,
                           cachedAt: (annotation as PhraseAnnotation).cachedAt || 0,
                         };
@@ -3882,7 +3933,6 @@ writes / wrote / written / write`;
                 </div>
               )}
             </div>
-          )}
         </aside>
         )}
       </div>

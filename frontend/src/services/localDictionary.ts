@@ -6,6 +6,7 @@ export interface LocalDictEntry {
   ipa: string;
   pos: string;
   level: string;
+  bncRank?: number;
   chinese: string;
   definition: string;
   examples?: string[];
@@ -212,6 +213,7 @@ class LocalDictionaryService {
       definition: entry.definition || '',
       example: entry.examples?.[0] || '',
       level: entry.level || 'B2',
+      bncRank: Number(entry.bncRank || 0) || undefined,
       partOfSpeech: resolvedPartOfSpeech,
       wordForms: wordForms.length > 0 ? wordForms : undefined,
     };

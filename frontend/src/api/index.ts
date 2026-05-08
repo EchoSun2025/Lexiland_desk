@@ -15,7 +15,9 @@ export function resolveAssetUrl(urlOrPath: string): string {
 
 export interface WordAnnotation {
   word: string;
+  cardKey?: string;
   baseForm?: string;
+  bncRank?: number;
   ipa: string;
   chinese: string;
   definition: string;
@@ -45,6 +47,10 @@ export interface PhraseAnnotation {
   grammarPoints?: Array<{
     text: string;
     explanation: string;
+  }>;
+  focusWordNotes?: Array<{
+    word: string;
+    note: string;
   }>;
   sentenceContext: string;
   documentTitle?: string;  // 文章标题
@@ -174,7 +180,9 @@ export async function annotatePhrase(
   phrase: string,
   sentenceContext: string,
   level: string = 'B2',
-  cardType: 'phrase' | 'sentence' | 'paragraph' | 'grammar' = 'phrase'
+  cardType: 'phrase' | 'sentence' | 'paragraph' | 'grammar' = 'phrase',
+  provider?: 'openai' | 'local',
+  focusWords?: string[],
 ): Promise<PhraseAnnotateResponse> {
   try {
     const response = await fetch(`${API_BASE_URL}/api/annotate-phrase`, {
@@ -182,7 +190,7 @@ export async function annotatePhrase(
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ phrase, sentenceContext, level, cardType }),
+      body: JSON.stringify({ phrase, sentenceContext, level, cardType, provider, focusWords }),
     });
 
     if (!response.ok) {

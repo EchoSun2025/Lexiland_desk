@@ -459,11 +459,5 @@ export function findAnnotationEntry<T extends AnnotationWithMeanings>(
     return { key: normalizedSurface, annotation: direct };
   }
 
-  for (const [key, annotation] of annotations.entries()) {
-    if (annotation.encounteredForms?.includes(normalizedSurface)) {
-      return { key, annotation };
-    }
-  }
-
   return null;
 }
