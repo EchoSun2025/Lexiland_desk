@@ -17,6 +17,8 @@ export type AppDefaultSettings = {
   level?: string;
   autoMark?: boolean;
   annotationMode?: 'ai' | 'local' | 'local-first';
+  phraseCardProvider?: 'openai' | 'local';
+  sentenceCardProvider?: 'openai' | 'local';
   autoPronounceSetting?: boolean;
   autoShowCardOnPlay?: boolean;
   speechRate?: number;
@@ -52,6 +54,7 @@ export interface Document {
   id: string;
   title: string;
   type: 'text' | 'epub';
+  format?: 'plain' | 'markdown';
   content?: string;
   paragraphs?: Paragraph[];
   chapters?: Chapter[];
@@ -86,6 +89,8 @@ interface AppState {
   level: string;
   autoMark: boolean;
   annotationMode: 'ai' | 'local' | 'local-first';
+  phraseCardProvider: 'openai' | 'local';
+  sentenceCardProvider: 'openai' | 'local';
   autoPronounceSetting: boolean;
   autoShowCardOnPlay: boolean;
 
@@ -116,6 +121,8 @@ interface AppState {
   setLevel: (level: string) => void;
   setAutoMark: (autoMark: boolean) => void;
   setAnnotationMode: (mode: 'ai' | 'local' | 'local-first') => void;
+  setPhraseCardProvider: (provider: 'openai' | 'local') => void;
+  setSentenceCardProvider: (provider: 'openai' | 'local') => void;
   setAutoPronounceSetting: (enabled: boolean) => void;
   setAutoShowCardOnPlay: (enabled: boolean) => void;
 }
@@ -153,6 +160,8 @@ export const useAppStore = create<AppState>((set) => {
     level: defaults.level || 'B2',
     autoMark: defaults.autoMark ?? true,
     annotationMode: defaults.annotationMode || 'local-first',
+    phraseCardProvider: defaults.phraseCardProvider || 'openai',
+    sentenceCardProvider: defaults.sentenceCardProvider || 'local',
     autoPronounceSetting: defaults.autoPronounceSetting ?? true,
     autoShowCardOnPlay: defaults.autoShowCardOnPlay ?? false,
 
@@ -294,6 +303,8 @@ export const useAppStore = create<AppState>((set) => {
     setLevel: (level) => set({ level }),
     setAutoMark: (autoMark) => set({ autoMark }),
     setAnnotationMode: (mode) => set({ annotationMode: mode }),
+    setPhraseCardProvider: (provider) => set({ phraseCardProvider: provider }),
+    setSentenceCardProvider: (provider) => set({ sentenceCardProvider: provider }),
     setAutoPronounceSetting: (enabled) => set({ autoPronounceSetting: enabled }),
     setAutoShowCardOnPlay: (enabled) => set({ autoShowCardOnPlay: enabled }),
   };

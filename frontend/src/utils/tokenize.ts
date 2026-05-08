@@ -24,6 +24,9 @@ export interface Paragraph {
   sentences: Sentence[];
   startIndex: number;
   endIndex: number;
+  blockType?: 'paragraph' | 'heading' | 'blockquote' | 'unordered-list-item' | 'ordered-list-item' | 'code';
+  blockLevel?: number;
+  blockMarker?: string;
 }
 
 /**
@@ -73,6 +76,151 @@ export function tokenizeParagraphs(text: string): Paragraph[] {
     currentIndex = endIndex;
   }
   
+  return paragraphs;
+}
+
+function createParagraph(
+  text: string,
+  startIndex: number,
+  blockType: Paragraph['blockType'] = 'paragraph',
+  blockLevel?: number,
+  blockMarker?: string,
+): Paragraph {
+  return {
+    id: generateId('para'),
+    text,
+    sentences: tokenizeSentences(text, startIndex),
+    startIndex,
+    endIndex: startIndex + text.length,
+    blockType,
+    blockLevel,
+    blockMarker,
+  };
+}
+
+export function tokenizeMarkdownParagraphs(markdown: string): Paragraph[] {
+  const text = markdown.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+  const paragraphs: Paragraph[] = [];
+  const lines = text.split('\n');
+  let currentIndex = 0;
+  let inCodeBlock = false;
+  let codeLines: string[] = [];
+  let codeStartIndex = 0;
+  let bufferedParagraphLines: string[] = [];
+  let bufferedParagraphStartIndex = 0;
+
+  const flushBufferedParagraph = () => {
+    const content = bufferedParagraphLines.join('\n').trim();
+    if (content) {
+      paragraphs.push(createParagraph(content, bufferedParagraphStartIndex, 'paragraph'));
+    }
+    bufferedParagraphLines = [];
+  };
+
+  const flushCodeBlock = () => {
+    const content = codeLines.join('\n').trim();
+    if (content) {
+      paragraphs.push(createParagraph(content, codeStartIndex, 'code'));
+    }
+    codeLines = [];
+  };
+
+  for (const line of lines) {
+    const lineWithBreak = `${line}\n`;
+    const trimmed = line.trim();
+
+    if (/^```/.test(trimmed)) {
+      flushBufferedParagraph();
+      if (!inCodeBlock) {
+        inCodeBlock = true;
+        codeStartIndex = currentIndex;
+      } else {
+        inCodeBlock = false;
+        flushCodeBlock();
+      }
+      currentIndex += lineWithBreak.length;
+      continue;
+    }
+
+    if (inCodeBlock) {
+      codeLines.push(line);
+      currentIndex += lineWithBreak.length;
+      continue;
+    }
+
+    if (!trimmed) {
+      flushBufferedParagraph();
+      currentIndex += lineWithBreak.length;
+      continue;
+    }
+
+    const singleLineCodeFenceMatch = trimmed.match(/^```([^`]*)```$/);
+    if (singleLineCodeFenceMatch) {
+      flushBufferedParagraph();
+      const codeText = singleLineCodeFenceMatch[1].trim();
+      if (codeText) {
+        paragraphs.push(createParagraph(codeText, currentIndex, 'code'));
+      }
+      currentIndex += lineWithBreak.length;
+      continue;
+    }
+
+    const headingMatch = line.match(/^\s{0,3}(#{1,6})\s+(.*)$/);
+    if (headingMatch) {
+      flushBufferedParagraph();
+      const headingText = headingMatch[2].trim();
+      if (headingText) {
+        paragraphs.push(createParagraph(headingText, currentIndex, 'heading', headingMatch[1].length));
+      }
+      currentIndex += lineWithBreak.length;
+      continue;
+    }
+
+    const blockquoteMatch = line.match(/^\s{0,3}>\s?(.*)$/);
+    if (blockquoteMatch) {
+      flushBufferedParagraph();
+      const quoteText = blockquoteMatch[1].trim();
+      if (quoteText) {
+        paragraphs.push(createParagraph(quoteText, currentIndex, 'blockquote'));
+      }
+      currentIndex += lineWithBreak.length;
+      continue;
+    }
+
+    const unorderedMatch = line.match(/^\s*([-*+])\s+(.*)$/);
+    if (unorderedMatch) {
+      flushBufferedParagraph();
+      const itemText = unorderedMatch[2].trim();
+      if (itemText) {
+        paragraphs.push(createParagraph(itemText, currentIndex, 'unordered-list-item', undefined, unorderedMatch[1]));
+      }
+      currentIndex += lineWithBreak.length;
+      continue;
+    }
+
+    const orderedMatch = line.match(/^\s*(\d+)\.\s+(.*)$/);
+    if (orderedMatch) {
+      flushBufferedParagraph();
+      const itemText = orderedMatch[2].trim();
+      if (itemText) {
+        paragraphs.push(createParagraph(itemText, currentIndex, 'ordered-list-item', undefined, `${orderedMatch[1]}.`));
+      }
+      currentIndex += lineWithBreak.length;
+      continue;
+    }
+
+    if (bufferedParagraphLines.length === 0) {
+      bufferedParagraphStartIndex = currentIndex;
+    }
+    bufferedParagraphLines.push(line);
+    currentIndex += lineWithBreak.length;
+  }
+
+  flushBufferedParagraph();
+  if (inCodeBlock) {
+    flushCodeBlock();
+  }
+
   return paragraphs;
 }
 

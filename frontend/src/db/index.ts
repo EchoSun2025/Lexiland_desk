@@ -48,6 +48,7 @@ export interface SavedDocument {
   id: string;
   title: string;
   type?: 'text' | 'epub';
+  format?: 'plain' | 'markdown';
   content?: string;
   paragraphs?: any[];
   chapters?: any[];

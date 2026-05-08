@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { useAppStore, type Document, type Chapter, type LearningCardType, type AppDefaultSettings, APP_DEFAULT_SETTINGS_KEY, getLatestBookmark, readAppDefaultSettings } from './store/appStore'
-import { tokenizeParagraphs, type Paragraph as ParagraphType, type Sentence, type Token } from './utils'
+import { tokenizeParagraphs, tokenizeMarkdownParagraphs, type Paragraph as ParagraphType, type Sentence, type Token } from './utils'
 import Paragraph from './components/Paragraph'
 import WordCard from './components/WordCard'
 import { loadKnownWordsFromFile, getAllKnownWords, addKnownWord as addKnownWordToDB, batchAddKnownWords, cacheAnnotation, getAllCachedAnnotations, addLearntWordToDB, removeLearntWordFromDB, getAllLearntWords, deleteAnnotation, cachePhraseAnnotation, getAllCachedPhraseAnnotations, deletePhraseAnnotation, exportUserData, importUserData, updateEmoji, addEmojiImagePathToActiveMeaning, setActiveMeaning, saveDocument, getAllSavedDocuments, touchDocument } from './db'
@@ -2511,6 +2511,7 @@ writes / wrote / written / write`;
     addDocument({
       id: documentId,
       type: 'text',
+      format: 'plain',
       title: newDocTitle.trim(),
       content: newDocContent.trim(),
       paragraphs,
@@ -2524,6 +2525,22 @@ writes / wrote / written / write`;
 
   const handleFileImport = () => {
     fileInputRef.current?.click();
+  };
+
+  const normalizeImportedText = (rawContent: string, fileName: string) => {
+    const normalized = rawContent.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+    const isMarkdown = /\.(md|markdown)$/i.test(fileName);
+
+    if (!isMarkdown) {
+      return normalized;
+    }
+
+    return normalized
+      .replace(/^---\n[\s\S]*?\n---\n*/m, '')
+      .replace(/!\[([^\]]*)\]\([^)]+\)/g, '$1')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/\n{3,}/g, '\n\n');
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2559,8 +2576,11 @@ writes / wrote / written / write`;
       // Handle text file
       const reader = new FileReader();
       reader.onload = (event) => {
-        const content = event.target?.result as string;
-        const paragraphs = tokenizeParagraphs(content);
+        const content = normalizeImportedText((event.target?.result as string) || '', file.name);
+        const isMarkdown = /\.(md|markdown)$/i.test(file.name);
+        const paragraphs = isMarkdown
+          ? tokenizeMarkdownParagraphs(content)
+          : tokenizeParagraphs(content);
         
         // Use filename as consistent ID (remove extension)
         const documentId = `txt-${file.name.replace(/\.[^/.]+$/, '')}`;
@@ -2568,6 +2588,7 @@ writes / wrote / written / write`;
         addDocument({
           id: documentId,
           type: 'text',
+          format: isMarkdown ? 'markdown' : 'plain',
           title: file.name.replace(/\.[^/.]+$/, ''),
           content,
           paragraphs,
@@ -3286,7 +3307,7 @@ writes / wrote / written / write`;
       <input
         ref={fileInputRef}
         type="file"
-        accept=".txt,.epub"
+        accept=".txt,.md,.markdown,.epub"
         onChange={handleFileChange}
         className="hidden"
       />
@@ -3664,7 +3685,7 @@ writes / wrote / written / write`;
                   })()}
                   
                   {/* Chapter title */}
-                  <div className="flex-1 text-center">
+                  <div className={`flex-1 ${currentDocument.format === 'markdown' ? 'text-left pl-1' : 'text-center'}`}>
                     {currentDocument.type === 'epub' && currentChapter
                       ? currentChapter.title
                       : currentDocument.title}
@@ -3749,6 +3770,7 @@ writes / wrote / written / write`;
                       
                       <Paragraph
                         paragraph={paragraph}
+                        renderMode={currentDocument.format === 'markdown' ? 'markdown' : 'default'}
                         paragraphIndex={pIdx}
                         knownWords={knownWords}
                         markedWords={markedWords}
