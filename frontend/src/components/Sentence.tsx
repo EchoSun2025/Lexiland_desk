@@ -39,8 +39,7 @@ export default function Sentence({ sentence, paragraphIndex, sentenceIndex, know
   const [hoveredUnderlineRange, setHoveredUnderlineRange] = useState<number | null>(null);
   const [hoveredAnnotatedPhraseIndex, setHoveredAnnotatedPhraseIndex] = useState<number | null>(null);
   const [hoveredPhraseMarkedIndex, setHoveredPhraseMarkedIndex] = useState<number | null>(null);
-  const longPressTimerRef = useRef<number | undefined>(undefined);
-  const didLongPressRef = useRef(false);
+  const touchStartPointRef = useRef<{ x: number; y: number } | null>(null);
   const focusWords = Array.from(
     new Set(
       sentence.tokens
@@ -49,13 +48,6 @@ export default function Sentence({ sentence, paragraphIndex, sentenceIndex, know
         .filter(word => markedWords.has(word)),
     ),
   );
-
-  const clearLongPressTimer = () => {
-    if (longPressTimerRef.current) {
-      window.clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = undefined;
-    }
-  };
 
   const openContextMenuAt = (clientX: number, clientY: number) => {
     const syntheticEvent = {
@@ -77,32 +69,29 @@ export default function Sentence({ sentence, paragraphIndex, sentenceIndex, know
     if (e.touches.length !== 1) return;
     e.stopPropagation();
     const touch = e.touches[0];
-    didLongPressRef.current = false;
-    clearLongPressTimer();
-    longPressTimerRef.current = window.setTimeout(() => {
-      didLongPressRef.current = true;
-      openContextMenuAt(touch.clientX, touch.clientY);
-    }, 500);
+    touchStartPointRef.current = { x: touch.clientX, y: touch.clientY };
   };
 
-  const handleTouchMove = () => {
-    clearLongPressTimer();
+  const handleTouchMove = (e: TouchEvent<HTMLSpanElement>) => {
+    if (!touchStartPointRef.current || e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    const deltaX = touch.clientX - touchStartPointRef.current.x;
+    const deltaY = touch.clientY - touchStartPointRef.current.y;
+
+    if (deltaX <= -56 && Math.abs(deltaX) > Math.abs(deltaY)) {
+      openContextMenuAt(touch.clientX, touch.clientY);
+      touchStartPointRef.current = null;
+    }
   };
 
   const handleTouchEnd = (e: TouchEvent<HTMLSpanElement>) => {
     e.stopPropagation();
-    clearLongPressTimer();
-    window.setTimeout(() => {
-      didLongPressRef.current = false;
-    }, 0);
+    touchStartPointRef.current = null;
   };
 
   const handleTouchCancel = (e: TouchEvent<HTMLSpanElement>) => {
     e.stopPropagation();
-    clearLongPressTimer();
-    window.setTimeout(() => {
-      didLongPressRef.current = false;
-    }, 0);
+    touchStartPointRef.current = null;
   };
 
   return (
@@ -196,15 +185,17 @@ export default function Sentence({ sentence, paragraphIndex, sentenceIndex, know
           } : (shouldHighlight ? { backgroundColor: 'rgba(167, 139, 250, 0.3)' } : {});
           
           // Determine if should show phrase translation
-          const shouldShowPhraseTranslation = isInAnnotatedPhraseRange && 
-            annotatedRange && 
-            showChinese && 
-            phraseTranslationInserts.get(annotatedRange.phrase);
-          
           // Check if this is the last token in the annotated phrase
           const isLastTokenInPhrase = isInAnnotatedPhraseRange && 
             annotatedRange && 
             tokenIndex === annotatedRange.endTokenIndex;
+          
+          const shouldShowPhraseTranslation = isInAnnotatedPhraseRange && 
+            annotatedRange && 
+            showChinese && 
+            phraseTranslationInserts.get(annotatedRange.phrase);
+          const phraseCard = annotatedRange ? phraseAnnotations.get(annotatedRange.phrase) : undefined;
+          const hasPhraseCardBar = isLastTokenInPhrase && phraseCard && (phraseCard as any).cardType !== 'sentence';
           
           const result = (
             <span 
@@ -261,6 +252,19 @@ export default function Sentence({ sentence, paragraphIndex, sentenceIndex, know
                   {phraseAnnotations.get(annotatedRange.phrase)!.chinese}
                 </span>
               )}
+              {hasPhraseCardBar && (
+                <button
+                  type="button"
+                  className="inline-flex h-5 w-2 ml-1 align-middle rounded-full bg-purple-300/80 hover:bg-purple-400 shadow-sm"
+                  title="Open phrase card"
+                  aria-label="Open phrase card"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onPhraseClick?.(annotatedRange!.phrase);
+                  }}
+                />
+              )}
             </span>
           );
           wordCount++;
@@ -300,6 +304,8 @@ export default function Sentence({ sentence, paragraphIndex, sentenceIndex, know
             annotatedRange && 
             showChinese && 
             phraseTranslationInserts.get(annotatedRange.phrase);
+          const phraseCard = annotatedRange ? phraseAnnotations.get(annotatedRange.phrase) : undefined;
+          const hasPhraseCardBar = isLastTokenInPhrase && phraseCard && (phraseCard as any).cardType !== 'sentence';
           
           return (
             <Fragment key={`${token.id}-${tokenIndex}`}>
@@ -330,6 +336,19 @@ export default function Sentence({ sentence, paragraphIndex, sentenceIndex, know
                 <span className="text-[10px] text-muted ml-1">
                   {phraseAnnotations.get(annotatedRange.phrase)!.chinese}
                 </span>
+              )}
+              {hasPhraseCardBar && (
+                <button
+                  type="button"
+                  className="inline-flex h-5 w-2 ml-1 align-middle rounded-full bg-purple-300/80 hover:bg-purple-400 shadow-sm"
+                  title="Open phrase card"
+                  aria-label="Open phrase card"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onPhraseClick?.(annotatedRange!.phrase);
+                  }}
+                />
               )}
             </Fragment>
           );

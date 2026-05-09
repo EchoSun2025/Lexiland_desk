@@ -300,12 +300,12 @@ function App() {
   const [readingFontScale, setReadingFontScale] = useState<number>(() =>
     Math.min(1.6, Math.max(0.9, getStoredNumber('readingFontScale', 1.1)))
   );
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const [isSyncingFixedStorage, setIsSyncingFixedStorage] = useState(false);
-  const appShellRef = useRef<HTMLDivElement | null>(null);
-  const paragraphLongPressTimerRef = useRef<number | undefined>(undefined);
-  const documentLongPressTimerRef = useRef<number | undefined>(undefined);
-  const documentLongPressTriggeredRef = useRef<boolean>(false);
+  const [viewportSize, setViewportSize] = useState<{ width: number; height: number }>(() => ({
+    width: window.innerWidth,
+    height: window.innerHeight,
+  }));
+  const documentTouchStartRef = useRef<{ x: number; y: number; id: string } | null>(null);
   const prevMarkedWordsSize = useRef<number>(0); // 闂傚倸鍊风粈渚€骞栭位鍥敃閿曗偓閻ょ偓绻涢幋娆忕仼闁绘帒鐏氶妵鍕箳閹存績鍋撻幖浣稿嚑婵炴垯鍨洪悡鏇㈡煏閸繃濯奸柛搴＄箻閺屽秹鎸婃径妯烩枅濡ょ姷鍋為…鍥╁垝閻㈠灚鍠嗛柛鏇ㄥ墯濮ｅ骸鈹戦敍鍕杭闁稿﹥鐗犲畷婵嬪即閵忕姈褔鏌熼梻瀵割槮缂?markedWords 婵犵數濮烽弫鍛婃叏娴兼潙鍨傜憸鐗堝笚閸嬪鏌曡箛瀣偓鏇犵矆閸愨斂浜滈煫鍥ㄦ尰閸ｈ姤淇?
 
   const closeCard = (cardKey: string) => {
@@ -386,24 +386,18 @@ function App() {
   }, [readingFontScale]);
 
   useEffect(() => {
-    const syncFullscreenState = () => {
-      const webkitDocument = document as unknown as globalThis.Document & { webkitFullscreenElement?: Element | null };
-      setIsFullscreen(Boolean(document.fullscreenElement || webkitDocument.webkitFullscreenElement));
+    const handleResize = () => {
+      setViewportSize({ width: window.innerWidth, height: window.innerHeight });
     };
-
-    syncFullscreenState();
-    document.addEventListener('fullscreenchange', syncFullscreenState);
-    document.addEventListener('webkitfullscreenchange', syncFullscreenState as EventListener);
+    window.addEventListener('resize', handleResize);
     return () => {
-      document.removeEventListener('fullscreenchange', syncFullscreenState);
-      document.removeEventListener('webkitfullscreenchange', syncFullscreenState as EventListener);
+      window.removeEventListener('resize', handleResize);
     };
   }, []);
 
   useEffect(() => {
     return () => {
-      clearParagraphLongPress();
-      clearDocumentLongPress();
+      documentTouchStartRef.current = null;
     };
   }, []);
 
@@ -1301,88 +1295,30 @@ function App() {
     setContextMenu({ x: e.clientX, y: e.clientY, pIndex, sIndex, sentenceText, focusWords });
   };
 
-  const openContextMenuAt = (
-    clientX: number,
-    clientY: number,
-    pIndex: number,
-    sIndex: number,
-    sentenceText?: string,
-    focusWords?: string[],
-  ) => {
-    setContextMenu({ x: clientX, y: clientY, pIndex, sIndex, sentenceText, focusWords });
-  };
-
-  const clearParagraphLongPress = () => {
-    if (paragraphLongPressTimerRef.current) {
-      window.clearTimeout(paragraphLongPressTimerRef.current);
-      paragraphLongPressTimerRef.current = undefined;
-    }
-  };
-
-  const handleParagraphTouchStart = (
-    e: ReactTouchEvent<HTMLElement>,
-    pIndex: number,
-    sIndex: number,
-    sentenceText?: string,
-    focusWords?: string[],
-  ) => {
-    if (e.touches.length !== 1) return;
-    const touch = e.touches[0];
-    clearParagraphLongPress();
-    paragraphLongPressTimerRef.current = window.setTimeout(() => {
-      openContextMenuAt(touch.clientX, touch.clientY, pIndex, sIndex, sentenceText, focusWords);
-    }, 500);
-  };
-
-  const clearDocumentLongPress = () => {
-    if (documentLongPressTimerRef.current) {
-      window.clearTimeout(documentLongPressTimerRef.current);
-      documentLongPressTimerRef.current = undefined;
-    }
-  };
-
   const handleDocumentTouchStart = (e: ReactTouchEvent<HTMLElement>, documentId: string) => {
     if (e.touches.length !== 1) return;
-    documentLongPressTriggeredRef.current = false;
-    clearDocumentLongPress();
-    documentLongPressTimerRef.current = window.setTimeout(() => {
-      documentLongPressTriggeredRef.current = true;
+    const touch = e.touches[0];
+    documentTouchStartRef.current = { x: touch.clientX, y: touch.clientY, id: documentId };
+  };
+
+  const handleDocumentTouchMove = (e: ReactTouchEvent<HTMLElement>, documentId: string) => {
+    if (!documentTouchStartRef.current || documentTouchStartRef.current.id !== documentId || e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    const deltaX = touch.clientX - documentTouchStartRef.current.x;
+    const deltaY = touch.clientY - documentTouchStartRef.current.y;
+
+    if (deltaX <= -56 && Math.abs(deltaX) > Math.abs(deltaY)) {
       setPendingDeleteDocumentId((current) => (current === documentId ? null : documentId));
-    }, 500);
+      documentTouchStartRef.current = null;
+    }
+  };
+
+  const handleDocumentTouchEnd = () => {
+    documentTouchStartRef.current = null;
   };
 
   const adjustReadingFontScale = (delta: number) => {
     setReadingFontScale((current) => Math.min(1.6, Math.max(0.9, Number((current + delta).toFixed(2)))));
-  };
-
-  const toggleFullscreen = async () => {
-    const appShell = appShellRef.current as (HTMLElement & {
-      webkitRequestFullscreen?: () => Promise<void> | void;
-    }) | null;
-    const webkitDocument = document as unknown as globalThis.Document & {
-      webkitFullscreenElement?: Element | null;
-      webkitExitFullscreen?: () => Promise<void> | void;
-    };
-
-    try {
-      if (document.fullscreenElement || webkitDocument.webkitFullscreenElement) {
-        if (document.exitFullscreen) {
-          await document.exitFullscreen();
-        } else if (webkitDocument.webkitExitFullscreen) {
-          await webkitDocument.webkitExitFullscreen();
-        }
-        return;
-      }
-
-      if (appShell?.requestFullscreen) {
-        await appShell.requestFullscreen();
-      } else if (appShell?.webkitRequestFullscreen) {
-        await appShell.webkitRequestFullscreen();
-      }
-    } catch (error) {
-      console.error('Fullscreen toggle failed:', error);
-      alert('Fullscreen is not available in this browser.');
-    }
   };
 
   const getAllSentenceLocations = () => {
@@ -3570,8 +3506,43 @@ writes / wrote / written / write`;
     </div>
   );
 
+  const isMobilePortrait = viewportSize.width <= 1024 && viewportSize.height > viewportSize.width;
+  const usePseudoFullscreen = isMobilePortrait;
+
+  const buildHistoryReviewItem = (item: { type: LearningCardType; word: string; timestamp: number }): ReviewCardItem | null => {
+    const annotation = item.type === 'word'
+      ? (annotations.get(item.word) || findAnnotationEntry(annotations, item.word)?.annotation)
+      : phraseAnnotations.get(item.word.toLowerCase());
+
+    if (!annotation) return null;
+
+    if (item.type === 'word') {
+      return {
+        type: 'word',
+        word: (annotation as WordAnnotation).word,
+        normalizedWord: getWordCardIdentity(annotation as WordAnnotation),
+        lookupKey: item.word,
+        cardKey: `word-${item.word}`,
+        displayLabel: getWordCardDisplayLabel(annotation as WordAnnotation),
+        annotation: annotation as WordAnnotation,
+        cachedAt: (annotation as WordAnnotation).cachedAt || 0,
+      };
+    }
+
+    return {
+      type: (annotation as PhraseAnnotation).cardType || item.type,
+      word: item.word,
+      normalizedWord: item.word.toLowerCase(),
+      cardKey: `${(annotation as PhraseAnnotation).cardType || item.type}-${item.word.toLowerCase()}`,
+      lookupKey: item.word.toLowerCase(),
+      annotation: annotation as PhraseAnnotation,
+      cachedAt: (annotation as PhraseAnnotation).cachedAt || 0,
+    };
+  };
+
+
   return (
-    <div ref={appShellRef} className="h-screen flex flex-col bg-stone-50">
+    <div className={`${usePseudoFullscreen ? 'fixed inset-0 z-50 h-[100dvh]' : 'h-screen'} flex flex-col bg-stone-50`}>
       <input
         ref={fileInputRef}
         type="file"
@@ -3588,7 +3559,7 @@ writes / wrote / written / write`;
       />
 
       {/* Top Bar */}
-      <div className="sticky top-0 z-10 bg-white/95 backdrop-blur-sm border-b border-border px-4 py-2.5 flex items-center gap-3 flex-wrap">
+      <div className={`sticky top-0 z-10 bg-white/95 backdrop-blur-sm border-b border-border px-4 py-2.5 flex items-center gap-3 flex-wrap ${usePseudoFullscreen ? 'shadow-sm' : ''}`}>
         {/* Hamburger Menu Button - Notion Style */}
         <button
           onClick={() => setIsOutlineCollapsed(!isOutlineCollapsed)}
@@ -3699,16 +3670,6 @@ writes / wrote / written / write`;
                 A+
               </button>
             </div>
-
-            <button
-              onClick={() => void toggleFullscreen()}
-              className={`px-2 py-1 border rounded-lg text-xs ${
-                isFullscreen ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-border hover:bg-hover'
-              }`}
-              title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-            >
-              {isFullscreen ? 'Exit Full' : 'Full'}
-            </button>
 
             <button
               onClick={toggleVoiceCommands}
@@ -3823,12 +3784,12 @@ writes / wrote / written / write`;
       </div>
 
       {/* Main Layout: Three Columns */}
-      <div className="flex-1 flex gap-3 p-3 min-h-0">
+      <div className={`flex-1 min-h-0 ${isMobilePortrait ? 'flex flex-col' : 'flex'} ${usePseudoFullscreen ? 'gap-0 p-0' : isMobilePortrait ? 'gap-2 p-2' : 'gap-3 p-3'}`}>
         {/* Left Panel: Outline - Notion Style Sidebar */}
         {!isOutlineCollapsed && (
           <aside 
-            className="w-[260px] border border-border rounded-2xl overflow-hidden bg-white flex flex-col min-h-0 transition-all duration-300 ease-in-out"
-            style={{ minWidth: '260px' }}
+            className={`${isMobilePortrait ? 'fixed left-0 top-[58px] bottom-0 z-20 w-[260px] shadow-xl' : 'w-[260px]'} border border-border rounded-2xl overflow-hidden bg-white flex flex-col min-h-0 transition-all duration-300 ease-in-out`}
+            style={{ minWidth: isMobilePortrait ? undefined : '260px' }}
             onMouseEnter={() => setIsOutlineHovered(true)}
             onMouseLeave={() => setIsOutlineHovered(false)}
           >
@@ -3935,10 +3896,6 @@ writes / wrote / written / write`;
                     <div
                       key={doc.id}
                       onClick={() => {
-                        if (documentLongPressTriggeredRef.current) {
-                          documentLongPressTriggeredRef.current = false;
-                          return;
-                        }
                         if (pendingDeleteDocumentId === doc.id) return;
                         setCurrentDocument(doc.id);
                       }}
@@ -3947,9 +3904,9 @@ writes / wrote / written / write`;
                         setPendingDeleteDocumentId((current) => (current === doc.id ? null : doc.id));
                       }}
                       onTouchStart={(e) => handleDocumentTouchStart(e, doc.id)}
-                      onTouchMove={clearDocumentLongPress}
-                      onTouchEnd={clearDocumentLongPress}
-                      onTouchCancel={clearDocumentLongPress}
+                      onTouchMove={(e) => handleDocumentTouchMove(e, doc.id)}
+                      onTouchEnd={handleDocumentTouchEnd}
+                      onTouchCancel={handleDocumentTouchEnd}
                       className={`px-3 py-2 rounded-lg flex items-center justify-between gap-2 cursor-pointer ${
                         pendingDeleteDocumentId === doc.id
                           ? 'bg-red-50 border border-red-200'
@@ -4035,7 +3992,7 @@ writes / wrote / written / write`;
         )}
 
         {/* Center Panel */}
-        <main className="flex-1 border border-border rounded-2xl overflow-hidden bg-white flex flex-col min-h-0">
+        <main className={`border border-border overflow-hidden bg-white flex flex-col min-h-0 ${isMobilePortrait ? 'flex-[2]' : 'flex-1'} ${usePseudoFullscreen ? 'rounded-none border-x-0 border-t-0' : 'rounded-2xl'}`}>
           <div
             id="main-scroll-container"
             className="reader-scaled flex-1 p-3 overflow-auto"
@@ -4154,10 +4111,6 @@ writes / wrote / written / write`;
                       key={paragraph.id}
                       data-paragraph-index={pIdx}
                       onContextMenu={(e) => handleContextMenu(e, pIdx, 0)}
-                      onTouchStart={(e) => handleParagraphTouchStart(e, pIdx, 0)}
-                      onTouchMove={clearParagraphLongPress}
-                      onTouchEnd={clearParagraphLongPress}
-                      onTouchCancel={clearParagraphLongPress}
                       className={`relative group transition-all hover:bg-gray-100 ${hideForFocus ? 'hidden' : ''}`}
                     >
                       {/* Bookmark indicator */}
@@ -4289,8 +4242,8 @@ writes / wrote / written / write`;
         {/* Right Panel: Cards */}
         {viewMode === 'read' && (
         <aside
-          className="reader-scaled w-[360px] flex flex-col min-h-0 overflow-auto"
-          style={{ minWidth: '360px', '--reader-font-scale': readingFontScale } as CSSProperties}
+          className={`reader-scaled ${isMobilePortrait ? 'w-full h-[18vh] overflow-auto' : 'w-[360px] flex flex-col min-h-0 overflow-auto'}`}
+          style={{ minWidth: isMobilePortrait ? undefined : '360px', '--reader-font-scale': readingFontScale } as CSSProperties}
         >
           {isLoadingAnnotation && (
             <div className="border border-border rounded-2xl p-3 bg-white mb-3">
@@ -4343,36 +4296,10 @@ writes / wrote / written / write`;
                   Double-click an orange word to see its card, or select a phrase and click Annotate.
                 </div>
               ) : (
-                <div className="space-y-2 max-h-[calc(100vh-200px)] overflow-y-auto">
+                <div className={`${isMobilePortrait ? 'space-y-2 h-full overflow-y-auto' : 'space-y-2 max-h-[calc(100vh-200px)] overflow-y-auto'}`}>
                   {cardHistory.map((item: { type: LearningCardType; word: string; timestamp: number }) => {
-                    const annotation = item.type === 'word' 
-                      ? (annotations.get(item.word) || findAnnotationEntry(annotations, item.word)?.annotation)
-                      : phraseAnnotations.get(item.word.toLowerCase());
-
-                    if (!annotation) return null;
-
-                    const reviewItem: ReviewCardItem = item.type === 'word'
-                      ? {
-                          type: 'word',
-                          word: (annotation as WordAnnotation).word,
-                          normalizedWord: getWordCardIdentity(annotation as WordAnnotation),
-                          lookupKey: item.word,
-                          cardKey: `word-${item.word}`,
-                          displayLabel: getWordCardDisplayLabel(annotation as WordAnnotation),
-                          annotation: annotation as WordAnnotation,
-                          cachedAt: (annotation as WordAnnotation).cachedAt || 0,
-                        }
-                      : {
-                          type: (annotation as PhraseAnnotation).cardType || item.type,
-                          word: item.word,
-                          normalizedWord: item.word.toLowerCase(),
-                          cardKey: `${(annotation as PhraseAnnotation).cardType || item.type}-${item.word.toLowerCase()}`,
-                          lookupKey: item.word.toLowerCase(),
-                          annotation: annotation as PhraseAnnotation,
-                          cachedAt: (annotation as PhraseAnnotation).cachedAt || 0,
-                        };
-
-                    return renderCardItem(reviewItem, 'read');
+                    const reviewItem = buildHistoryReviewItem(item);
+                    return reviewItem ? renderCardItem(reviewItem, 'read') : null;
                   })}
                 </div>
               )}
