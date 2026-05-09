@@ -1,10 +1,9 @@
 {
-  "name": "desktopword-prototype",
+  "name": "lexiland-capture-extension",
   "private": true,
-  "version": "0.1.0",
-  "type": "module",
+  "version": "0.2.0",
+  "description": "Offline Chrome extension MVP for capturing English words into a local side panel.",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "check": "node --check background.js && node --check content.js && node --check sidepanel.js"
   }
 }
