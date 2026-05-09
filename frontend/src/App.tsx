@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type TouchEvent as ReactTouchEvent } from 'react'
 import './App.css'
 import { useAppStore, type Document, type Chapter, type LearningCardType, type AppDefaultSettings, APP_DEFAULT_SETTINGS_KEY, getLatestBookmark, readAppDefaultSettings } from './store/appStore'
 import { tokenizeParagraphs, tokenizeMarkdownParagraphs, type Paragraph as ParagraphType, type Sentence, type Token } from './utils'
@@ -297,6 +297,15 @@ function App() {
   const [autoFixedBackupEnabled, setAutoFixedBackupEnabled] = useState<boolean>(() =>
     getStoredBoolean('autoFixedBackupEnabled', appDefaults.autoFixedBackupEnabled ?? true)
   );
+  const [readingFontScale, setReadingFontScale] = useState<number>(() =>
+    Math.min(1.6, Math.max(0.9, getStoredNumber('readingFontScale', 1.1)))
+  );
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isSyncingFixedStorage, setIsSyncingFixedStorage] = useState(false);
+  const appShellRef = useRef<HTMLDivElement | null>(null);
+  const paragraphLongPressTimerRef = useRef<number | undefined>(undefined);
+  const documentLongPressTimerRef = useRef<number | undefined>(undefined);
+  const documentLongPressTriggeredRef = useRef<boolean>(false);
   const prevMarkedWordsSize = useRef<number>(0); // 闂傚倸鍊风粈渚€骞栭位鍥敃閿曗偓閻ょ偓绻涢幋娆忕仼闁绘帒鐏氶妵鍕箳閹存績鍋撻幖浣稿嚑婵炴垯鍨洪悡鏇㈡煏閸繃濯奸柛搴＄箻閺屽秹鎸婃径妯烩枅濡ょ姷鍋為…鍥╁垝閻㈠灚鍠嗛柛鏇ㄥ墯濮ｅ骸鈹戦敍鍕杭闁稿﹥鐗犲畷婵嬪即閵忕姈褔鏌熼梻瀵割槮缂?markedWords 婵犵數濮烽弫鍛婃叏娴兼潙鍨傜憸鐗堝笚閸嬪鏌曡箛瀣偓鏇犵矆閸愨斂浜滈煫鍥ㄦ尰閸ｈ姤淇?
 
   const closeCard = (cardKey: string) => {
@@ -371,6 +380,32 @@ function App() {
   useEffect(() => {
     localStorage.setItem('speechRate', String(speechRate));
   }, [speechRate]);
+
+  useEffect(() => {
+    localStorage.setItem('readingFontScale', String(readingFontScale));
+  }, [readingFontScale]);
+
+  useEffect(() => {
+    const syncFullscreenState = () => {
+      const webkitDocument = document as unknown as globalThis.Document & { webkitFullscreenElement?: Element | null };
+      setIsFullscreen(Boolean(document.fullscreenElement || webkitDocument.webkitFullscreenElement));
+    };
+
+    syncFullscreenState();
+    document.addEventListener('fullscreenchange', syncFullscreenState);
+    document.addEventListener('webkitfullscreenchange', syncFullscreenState as EventListener);
+    return () => {
+      document.removeEventListener('fullscreenchange', syncFullscreenState);
+      document.removeEventListener('webkitfullscreenchange', syncFullscreenState as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearParagraphLongPress();
+      clearDocumentLongPress();
+    };
+  }, []);
 
   useEffect(() => {
     setReviewSelectedBucketKey(null);
@@ -1264,6 +1299,90 @@ function App() {
   ) => {
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY, pIndex, sIndex, sentenceText, focusWords });
+  };
+
+  const openContextMenuAt = (
+    clientX: number,
+    clientY: number,
+    pIndex: number,
+    sIndex: number,
+    sentenceText?: string,
+    focusWords?: string[],
+  ) => {
+    setContextMenu({ x: clientX, y: clientY, pIndex, sIndex, sentenceText, focusWords });
+  };
+
+  const clearParagraphLongPress = () => {
+    if (paragraphLongPressTimerRef.current) {
+      window.clearTimeout(paragraphLongPressTimerRef.current);
+      paragraphLongPressTimerRef.current = undefined;
+    }
+  };
+
+  const handleParagraphTouchStart = (
+    e: ReactTouchEvent<HTMLElement>,
+    pIndex: number,
+    sIndex: number,
+    sentenceText?: string,
+    focusWords?: string[],
+  ) => {
+    if (e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    clearParagraphLongPress();
+    paragraphLongPressTimerRef.current = window.setTimeout(() => {
+      openContextMenuAt(touch.clientX, touch.clientY, pIndex, sIndex, sentenceText, focusWords);
+    }, 500);
+  };
+
+  const clearDocumentLongPress = () => {
+    if (documentLongPressTimerRef.current) {
+      window.clearTimeout(documentLongPressTimerRef.current);
+      documentLongPressTimerRef.current = undefined;
+    }
+  };
+
+  const handleDocumentTouchStart = (e: ReactTouchEvent<HTMLElement>, documentId: string) => {
+    if (e.touches.length !== 1) return;
+    documentLongPressTriggeredRef.current = false;
+    clearDocumentLongPress();
+    documentLongPressTimerRef.current = window.setTimeout(() => {
+      documentLongPressTriggeredRef.current = true;
+      setPendingDeleteDocumentId((current) => (current === documentId ? null : documentId));
+    }, 500);
+  };
+
+  const adjustReadingFontScale = (delta: number) => {
+    setReadingFontScale((current) => Math.min(1.6, Math.max(0.9, Number((current + delta).toFixed(2)))));
+  };
+
+  const toggleFullscreen = async () => {
+    const appShell = appShellRef.current as (HTMLElement & {
+      webkitRequestFullscreen?: () => Promise<void> | void;
+    }) | null;
+    const webkitDocument = document as unknown as globalThis.Document & {
+      webkitFullscreenElement?: Element | null;
+      webkitExitFullscreen?: () => Promise<void> | void;
+    };
+
+    try {
+      if (document.fullscreenElement || webkitDocument.webkitFullscreenElement) {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        } else if (webkitDocument.webkitExitFullscreen) {
+          await webkitDocument.webkitExitFullscreen();
+        }
+        return;
+      }
+
+      if (appShell?.requestFullscreen) {
+        await appShell.requestFullscreen();
+      } else if (appShell?.webkitRequestFullscreen) {
+        await appShell.webkitRequestFullscreen();
+      }
+    } catch (error) {
+      console.error('Fullscreen toggle failed:', error);
+      alert('Fullscreen is not available in this browser.');
+    }
   };
 
   const getAllSentenceLocations = () => {
@@ -2185,6 +2304,50 @@ ${sortedWords.join(' ')}
       );
     } else {
       setFixedStorageStatus(`Status check failed: ${status.error}`);
+    }
+  };
+
+  const handleTwoWayFixedStorageSync = async () => {
+    setIsSyncingFixedStorage(true);
+    try {
+      const backup = await loadUserBackup();
+      let imported = 0;
+      let skipped = 0;
+      let sourcePath = '';
+      let warning = '';
+
+      if (backup.success && backup.data?.jsonData) {
+        const result = await importUserData(backup.data.jsonData);
+        imported = result.imported;
+        skipped = result.skipped;
+        sourcePath = backup.data.path || '';
+        warning = backup.data.warning || '';
+        await reloadDataFromDB();
+      }
+
+      const mergedJson = await exportUserData();
+      const saveResult = await saveUserBackup(mergedJson);
+      if (!saveResult.success) {
+        throw new Error(saveResult.error || 'Failed to save merged backup');
+      }
+
+      setFixedStorageStatus(`Synced: ${saveResult.data?.latestPath || 'latest backup'}`);
+
+      let message = `PC/server sync finished.\nImported from server: ${imported}\nSkipped: ${skipped}`;
+      if (sourcePath) {
+        message += `\nLoaded: ${sourcePath}`;
+      }
+      if (warning) {
+        message += `\nNote: ${warning}`;
+      }
+      if (saveResult.data?.latestPath) {
+        message += `\nSaved: ${saveResult.data.latestPath}`;
+      }
+      alert(message);
+    } catch (error: any) {
+      alert(`PC/server sync failed: ${error.message}`);
+    } finally {
+      setIsSyncingFixedStorage(false);
     }
   };
 
@@ -3408,7 +3571,7 @@ writes / wrote / written / write`;
   );
 
   return (
-    <div className="h-screen flex flex-col">
+    <div ref={appShellRef} className="h-screen flex flex-col bg-stone-50">
       <input
         ref={fileInputRef}
         type="file"
@@ -3518,6 +3681,33 @@ writes / wrote / written / write`;
               title="Focus current sentence or paragraph"
             >
               Focus
+            </button>
+
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => adjustReadingFontScale(-0.1)}
+                className="px-2 py-1 border border-border rounded-lg hover:bg-hover text-xs"
+                title="Smaller text"
+              >
+                A-
+              </button>
+              <button
+                onClick={() => adjustReadingFontScale(0.1)}
+                className="px-2 py-1 border border-border rounded-lg hover:bg-hover text-xs"
+                title="Larger text"
+              >
+                A+
+              </button>
+            </div>
+
+            <button
+              onClick={() => void toggleFullscreen()}
+              className={`px-2 py-1 border rounded-lg text-xs ${
+                isFullscreen ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-border hover:bg-hover'
+              }`}
+              title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+            >
+              {isFullscreen ? 'Exit Full' : 'Full'}
             </button>
 
             <button
@@ -3745,6 +3935,10 @@ writes / wrote / written / write`;
                     <div
                       key={doc.id}
                       onClick={() => {
+                        if (documentLongPressTriggeredRef.current) {
+                          documentLongPressTriggeredRef.current = false;
+                          return;
+                        }
                         if (pendingDeleteDocumentId === doc.id) return;
                         setCurrentDocument(doc.id);
                       }}
@@ -3752,6 +3946,10 @@ writes / wrote / written / write`;
                         e.preventDefault();
                         setPendingDeleteDocumentId((current) => (current === doc.id ? null : doc.id));
                       }}
+                      onTouchStart={(e) => handleDocumentTouchStart(e, doc.id)}
+                      onTouchMove={clearDocumentLongPress}
+                      onTouchEnd={clearDocumentLongPress}
+                      onTouchCancel={clearDocumentLongPress}
                       className={`px-3 py-2 rounded-lg flex items-center justify-between gap-2 cursor-pointer ${
                         pendingDeleteDocumentId === doc.id
                           ? 'bg-red-50 border border-red-200'
@@ -3840,7 +4038,8 @@ writes / wrote / written / write`;
         <main className="flex-1 border border-border rounded-2xl overflow-hidden bg-white flex flex-col min-h-0">
           <div
             id="main-scroll-container"
-            className="flex-1 p-3 overflow-auto"
+            className="reader-scaled flex-1 p-3 overflow-auto"
+            style={{ '--reader-font-scale': readingFontScale } as CSSProperties}
             onMouseUp={viewMode === 'read' ? handleTextSelection : undefined}
           >
             {viewMode === 'read' ? (currentDocument ? (
@@ -3955,6 +4154,10 @@ writes / wrote / written / write`;
                       key={paragraph.id}
                       data-paragraph-index={pIdx}
                       onContextMenu={(e) => handleContextMenu(e, pIdx, 0)}
+                      onTouchStart={(e) => handleParagraphTouchStart(e, pIdx, 0)}
+                      onTouchMove={clearParagraphLongPress}
+                      onTouchEnd={clearParagraphLongPress}
+                      onTouchCancel={clearParagraphLongPress}
                       className={`relative group transition-all hover:bg-gray-100 ${hideForFocus ? 'hidden' : ''}`}
                     >
                       {/* Bookmark indicator */}
@@ -4085,7 +4288,10 @@ writes / wrote / written / write`;
 
         {/* Right Panel: Cards */}
         {viewMode === 'read' && (
-        <aside className="w-[360px] flex flex-col min-h-0 overflow-auto" style={{ minWidth: '360px' }}>
+        <aside
+          className="reader-scaled w-[360px] flex flex-col min-h-0 overflow-auto"
+          style={{ minWidth: '360px', '--reader-font-scale': readingFontScale } as CSSProperties}
+        >
           {isLoadingAnnotation && (
             <div className="border border-border rounded-2xl p-3 bg-white mb-3">
               <div className="text-sm text-muted">Loading annotation...</div>
@@ -4718,6 +4924,15 @@ writes / wrote / written / write`;
                   title="Load latest backup from fixed learning folder"
                 >
                   Load from Fixed Storage
+                </button>
+
+                <button
+                  onClick={handleTwoWayFixedStorageSync}
+                  disabled={isSyncingFixedStorage}
+                  className="w-full px-4 py-2 border border-emerald-500 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:bg-gray-100 disabled:text-gray-400 disabled:border-gray-300 rounded-lg text-sm font-semibold"
+                  title="Merge missing items from fixed storage into this device, then save the merged result back to the server"
+                >
+                  {isSyncingFixedStorage ? 'Syncing PC <-> Server...' : 'Sync PC <-> Server'}
                 </button>
 
                 <button

@@ -1,6 +1,7 @@
 import type { Sentence as SentenceType } from '../utils/tokenize';
 import Word from './Word';
-import { useState, Fragment } from 'react';
+import { useState, Fragment, useRef } from 'react';
+import type { MouseEvent, TouchEvent } from 'react';
 import { findAnnotationEntry } from '../utils/wordMeanings';
 
 interface SentenceProps {
@@ -23,18 +24,110 @@ interface SentenceProps {
   onWordClick?: (word: string, pIndex?: number, sIndex?: number, tokenIndex?: number) => void;
   onPhraseClick?: (phrase: string) => void;
   onMarkKnown?: (word: string) => void;
+  onSentenceContextMenu?: (
+    e: MouseEvent,
+    payload: { text: string; pIndex: number; sIndex: number; focusWords: string[] }
+  ) => void;
+  hasSentenceCard?: boolean;
+  onSentenceCardClick?: (sentenceText: string) => void;
   isCurrentSentence?: boolean;
   currentWordIndex?: number;
 }
 
-export default function Sentence({ sentence, paragraphIndex, sentenceIndex, knownWords, markedWords, phraseMarkedRanges, annotatedPhraseRanges, underlinePhraseRanges, learntWords, annotations, phraseAnnotations, phraseTranslationInserts, showIPA, showChinese, autoMark, autoPronounceSetting = false, onWordClick, onPhraseClick, onMarkKnown, isCurrentSentence = false, currentWordIndex = -1 }: SentenceProps) {
+export default function Sentence({ sentence, paragraphIndex, sentenceIndex, knownWords, markedWords, phraseMarkedRanges, annotatedPhraseRanges, underlinePhraseRanges, learntWords, annotations, phraseAnnotations, phraseTranslationInserts, showIPA, showChinese, autoMark, autoPronounceSetting = false, onWordClick, onPhraseClick, onMarkKnown, onSentenceContextMenu, hasSentenceCard = false, onSentenceCardClick, isCurrentSentence = false, currentWordIndex = -1 }: SentenceProps) {
   let wordCount = 0; // Track word index within this sentence
   const [hoveredUnderlineRange, setHoveredUnderlineRange] = useState<number | null>(null);
   const [hoveredAnnotatedPhraseIndex, setHoveredAnnotatedPhraseIndex] = useState<number | null>(null);
   const [hoveredPhraseMarkedIndex, setHoveredPhraseMarkedIndex] = useState<number | null>(null);
+  const longPressTimerRef = useRef<number | undefined>(undefined);
+  const didLongPressRef = useRef(false);
+  const focusWords = Array.from(
+    new Set(
+      sentence.tokens
+        .filter(token => token.type === 'word')
+        .map(token => token.text.toLowerCase())
+        .filter(word => markedWords.has(word)),
+    ),
+  );
+
+  const clearLongPressTimer = () => {
+    if (longPressTimerRef.current) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = undefined;
+    }
+  };
+
+  const openContextMenuAt = (clientX: number, clientY: number) => {
+    const syntheticEvent = {
+      preventDefault() {},
+      stopPropagation() {},
+      clientX,
+      clientY,
+    } as unknown as MouseEvent;
+
+    onSentenceContextMenu?.(syntheticEvent, {
+      text: sentence.text,
+      pIndex: paragraphIndex,
+      sIndex: sentenceIndex,
+      focusWords,
+    });
+  };
+
+  const handleTouchStart = (e: TouchEvent<HTMLSpanElement>) => {
+    if (e.touches.length !== 1) return;
+    e.stopPropagation();
+    const touch = e.touches[0];
+    didLongPressRef.current = false;
+    clearLongPressTimer();
+    longPressTimerRef.current = window.setTimeout(() => {
+      didLongPressRef.current = true;
+      openContextMenuAt(touch.clientX, touch.clientY);
+    }, 500);
+  };
+
+  const handleTouchMove = () => {
+    clearLongPressTimer();
+  };
+
+  const handleTouchEnd = (e: TouchEvent<HTMLSpanElement>) => {
+    e.stopPropagation();
+    clearLongPressTimer();
+    window.setTimeout(() => {
+      didLongPressRef.current = false;
+    }, 0);
+  };
+
+  const handleTouchCancel = (e: TouchEvent<HTMLSpanElement>) => {
+    e.stopPropagation();
+    clearLongPressTimer();
+    window.setTimeout(() => {
+      didLongPressRef.current = false;
+    }, 0);
+  };
 
   return (
-    <span className={`inline whitespace-pre-wrap ${isCurrentSentence ? 'bg-blue-100 rounded px-1' : ''}`}>
+    <span
+      className={`inline whitespace-pre-wrap ${
+        isCurrentSentence
+          ? 'bg-blue-100 rounded px-1'
+          : hasSentenceCard
+            ? 'bg-green-100/30 rounded px-1'
+            : ''
+      }`}
+      onContextMenu={(e) => {
+        e.stopPropagation();
+        onSentenceContextMenu?.(e, {
+          text: sentence.text,
+          pIndex: paragraphIndex,
+          sIndex: sentenceIndex,
+          focusWords,
+        });
+      }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchCancel}
+    >
       {sentence.tokens.map((token, tokenIndex) => {
         const tokenPos = `p${paragraphIndex}-s${sentenceIndex}-t${tokenIndex}`;
         
@@ -242,6 +335,19 @@ export default function Sentence({ sentence, paragraphIndex, sentenceIndex, know
           );
         }
       })}
+      {hasSentenceCard && (
+        <button
+          type="button"
+          className="inline-flex h-5 w-2 ml-1 align-middle rounded-full bg-green-300/70 hover:bg-green-400/80 shadow-sm"
+          title="Open sentence card"
+          aria-label="Open sentence card"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onSentenceCardClick?.(sentence.text);
+          }}
+        />
+      )}
     </span>
   );
 }
