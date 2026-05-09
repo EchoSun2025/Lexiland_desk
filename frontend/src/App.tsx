@@ -3667,7 +3667,10 @@ writes / wrote / written / write`;
                       <span className="text-[10px] font-semibold text-stone-500 min-w-[28px] pt-0.5">
                         H{entry.level}
                       </span>
-                      <span className={`flex-1 min-w-0 truncate ${entry.level === 1 ? 'font-bold' : entry.level === 2 ? 'font-semibold' : 'text-sm'}`}>
+                      <span
+                        className={`flex-1 min-w-0 truncate ${entry.level === 1 ? 'font-bold' : entry.level === 2 ? 'font-semibold' : 'text-sm'}`}
+                        title={entry.title}
+                      >
                         {entry.title}
                       </span>
                     </button>
@@ -3705,7 +3708,7 @@ writes / wrote / written / write`;
                         }`}>
                           {doc.type === 'epub' ? 'EPUB' : doc.format === 'markdown' ? 'MD' : 'TXT'}
                         </span>
-                        <span className="truncate">{doc.title}</span>
+                        <span className="truncate" title={doc.title}>{doc.title}</span>
                       </span>
                       {pendingDeleteDocumentId === doc.id ? (
                         <button
