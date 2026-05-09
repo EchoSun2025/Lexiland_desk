@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Lexiland Capture MVP",
+  "version": "0.2.0",
+  "description": "Capture English words from webpages into a local Lexiland side panel.",
+  "minimum_chrome_version": "114",
+  "permissions": [
+    "storage",
+    "sidePanel",
+    "tabs"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Open Lexiland"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

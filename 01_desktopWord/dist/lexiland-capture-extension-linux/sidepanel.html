@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lexiland Capture</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <main class="panel-shell">
+      <header class="hero">
+        <div class="hero-title-row">
+          <h1 id="captureCount">captured 0 words</h1>
+          <button id="exportButton" class="accent-button" type="button">Export JSON</button>
+        </div>
+      </header>
+
+      <section class="toolbar">
+        <label class="search-field">
+          <span class="sr-only">Search captures</span>
+          <input id="searchInput" type="search" placeholder="Search words or sentence context..." />
+        </label>
+      </section>
+
+      <section id="resultsRoot" class="results-root"></section>
+    </main>
+
+    <script src="sidepanel.js"></script>
+  </body>
+</html>
