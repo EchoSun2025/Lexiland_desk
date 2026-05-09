@@ -1,0 +1,15 @@
+[Unit]
+Description=LexiLand Read Backend
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/lexiland-read/backend
+EnvironmentFile=/opt/lexiland-read/backend/.env
+ExecStart=/usr/bin/node dist/index.js
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target

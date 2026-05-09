@@ -1,0 +1,23 @@
+read.echosun.link {
+  root * /opt/lexiland-read/frontend-dist
+  encode zstd gzip
+  file_server
+
+  handle /api/* {
+    reverse_proxy 127.0.0.1:3001
+  }
+
+    handle /learning-images/* {
+        reverse_proxy 127.0.0.1:3001
+    }
+
+    handle /library-files/* {
+        reverse_proxy 127.0.0.1:3001
+    }
+
+    handle /speech-audio/* {
+        reverse_proxy 127.0.0.1:3001
+    }
+
+  try_files {path} /index.html
+}

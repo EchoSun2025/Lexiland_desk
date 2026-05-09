@@ -26,10 +26,11 @@ const DEFAULT_DATA_DIR = 'D:\\0_EnglishLearning';
 const LEARNING_DATA_DIR = path.resolve(process.env.LEARNING_DATA_DIR || DEFAULT_DATA_DIR);
 const LEARNING_IMAGES_DIR = path.join(LEARNING_DATA_DIR, 'images');
 const LEARNING_BACKUPS_DIR = path.join(LEARNING_DATA_DIR, 'backups');
+const LEARNING_LIBRARY_DIR = path.join(LEARNING_DATA_DIR, 'library');
 const BACKUP_LATEST_SHRINK_RATIO = 0.5;
 const BACKUP_LATEST_PROTECT_MIN_ITEMS = 200;
 
-for (const dir of [LEARNING_DATA_DIR, LEARNING_IMAGES_DIR, LEARNING_BACKUPS_DIR]) {
+for (const dir of [LEARNING_DATA_DIR, LEARNING_IMAGES_DIR, LEARNING_BACKUPS_DIR, LEARNING_LIBRARY_DIR]) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
@@ -65,6 +66,17 @@ function summarizeBackupData(data: any, backupPath: string): BackupSummary {
     totalCardNotes,
     totalItems: totalKnownWords + totalLearntWords + totalAnnotations + totalPhraseAnnotations + totalCardNotes,
   };
+}
+
+function encodeLibraryFileName(fileName: string): string {
+  return encodeURIComponent(fileName).replace(
+    /[!'()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
+function getLibraryFilePath(fileName: string): string {
+  return path.join(LEARNING_LIBRARY_DIR, fileName);
 }
 
 function readBackupSummary(backupPath: string): BackupSummary | null {
@@ -256,11 +268,22 @@ function parseJsonResponse<T>(content: string, provider?: AITextProvider): T {
 
 // 注册 CORS
 const devOriginPattern = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
+const productionAllowedOrigins = new Set(
+  (process.env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean),
+);
 
 await fastify.register(cors, {
   origin: (origin, callback) => {
     if (process.env.NODE_ENV === 'production') {
-      callback(null, origin === 'https://lexiland.app');
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      callback(null, productionAllowedOrigins.has(origin));
       return;
     }
 
@@ -279,6 +302,12 @@ await fastify.register(cors, {
 await fastify.register(staticPlugin, {
   root: LEARNING_IMAGES_DIR,
   prefix: '/learning-images/',
+});
+
+await fastify.register(staticPlugin, {
+  root: LEARNING_LIBRARY_DIR,
+  prefix: '/library-files/',
+  decorateReply: false,
 });
 
 const speechPaths = await ensureSpeechDirectories(LEARNING_DATA_DIR);
@@ -306,6 +335,61 @@ fastify.get('/health', async (request, reply) => {
 // 测试路由
 fastify.get('/api/test', async (request, reply) => {
   return { message: 'LexiLand Read Backend is running!' };
+});
+
+fastify.get('/api/library/books', async () => {
+  const supportedExtensions = new Set(['.epub', '.txt', '.md', '.markdown']);
+  const books = fs
+    .readdirSync(LEARNING_LIBRARY_DIR, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => {
+      const extension = path.extname(entry.name).toLowerCase();
+      if (!supportedExtensions.has(extension)) {
+        return null;
+      }
+
+      const fullPath = path.join(LEARNING_LIBRARY_DIR, entry.name);
+      const stats = fs.statSync(fullPath);
+
+      return {
+        fileName: entry.name,
+        title: entry.name.replace(/\.[^/.]+$/, ''),
+        extension,
+        type: extension === '.epub' ? 'epub' : 'text',
+        format: extension === '.md' || extension === '.markdown' ? 'markdown' : 'plain',
+        size: stats.size,
+        updatedAt: stats.mtime.toISOString(),
+        url: `/api/library/file?name=${encodeLibraryFileName(entry.name)}`,
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+
+  return {
+    success: true,
+    data: books,
+  };
+});
+
+fastify.get<{ Querystring: { name?: string } }>('/api/library/file', async (request, reply) => {
+  const fileName = request.query?.name;
+
+  if (!fileName) {
+    return reply.code(400).send({
+      success: false,
+      error: 'name query parameter is required',
+    });
+  }
+
+  const filePath = getLibraryFilePath(fileName);
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    return reply.code(404).send({
+      success: false,
+      error: 'Library file not found',
+    });
+  }
+
+  return reply.sendFile(fileName, LEARNING_LIBRARY_DIR);
 });
 
 // 生词注释 API

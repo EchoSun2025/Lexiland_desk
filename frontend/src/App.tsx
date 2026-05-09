@@ -5,7 +5,7 @@ import { tokenizeParagraphs, tokenizeMarkdownParagraphs, type Paragraph as Parag
 import Paragraph from './components/Paragraph'
 import WordCard from './components/WordCard'
 import { loadKnownWordsFromFile, getAllKnownWords, addKnownWord as addKnownWordToDB, batchAddKnownWords, cacheAnnotation, getAllCachedAnnotations, addLearntWordToDB, removeLearntWordFromDB, getAllLearntWords, deleteAnnotation, cachePhraseAnnotation, getAllCachedPhraseAnnotations, deletePhraseAnnotation, exportUserData, importUserData, updateEmoji, addEmojiImagePathToActiveMeaning, setActiveMeaning, saveDocument, getAllSavedDocuments, touchDocument, deleteSavedDocument } from './db'
-import { annotateWord, annotatePhrase, searchImage, generateEmojiImage, savePastedImage, resolveAssetUrl, saveUserBackup, loadUserBackup, getUserBackupStatus, type WordAnnotation, type PhraseAnnotation } from './api'
+import { annotateWord, annotatePhrase, searchImage, generateEmojiImage, savePastedImage, resolveAssetUrl, saveUserBackup, loadUserBackup, getUserBackupStatus, getServerLibraryBooks, type WordAnnotation, type PhraseAnnotation, type ServerLibraryBook } from './api'
 import PhraseCard from './components/PhraseCard'
 import { localDictionary } from './services/localDictionary'
 import { exportAnnotatedBook } from './services/bookExport'
@@ -205,6 +205,9 @@ function App() {
   const [reviewSelectedBucketKey, setReviewSelectedBucketKey] = useState<string | null>(null);
   const [reviewHiddenCardKeys, setReviewHiddenCardKeys] = useState<Set<string>>(new Set());
   const [pendingDeleteDocumentId, setPendingDeleteDocumentId] = useState<string | null>(null);
+  const [serverLibraryBooks, setServerLibraryBooks] = useState<ServerLibraryBook[]>([]);
+  const [serverLibraryStatus, setServerLibraryStatus] = useState<string>('Loading server library...');
+  const [loadingServerBookName, setLoadingServerBookName] = useState<string | null>(null);
   
   // Get current document and chapter
   const currentDocument = documents.find((d: Document) => d.id === currentDocumentId);
@@ -315,6 +318,33 @@ function App() {
       const stats = localDictionary.getStats();
       console.log(`[App] Local dictionary initialized: ${stats.totalWords} words`);
     });
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadServerLibrary = async () => {
+      const result = await getServerLibraryBooks();
+      if (cancelled) return;
+
+      if (result.success && result.data) {
+        setServerLibraryBooks(result.data);
+        setServerLibraryStatus(
+          result.data.length > 0
+            ? `Server Library (${result.data.length})`
+            : 'Server library is empty'
+        );
+      } else {
+        setServerLibraryBooks([]);
+        setServerLibraryStatus(result.error || 'Server library unavailable');
+      }
+    };
+
+    void loadServerLibrary();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Save today's annotations to localStorage
@@ -2578,6 +2608,43 @@ writes / wrote / written / write`;
       .replace(/\n{3,}/g, '\n\n');
   };
 
+  const loadTextDocument = (content: string, fileName: string, documentPrefix: string) => {
+    const normalizedContent = normalizeImportedText(content, fileName);
+    const isMarkdown = /\.(md|markdown)$/i.test(fileName);
+    const paragraphs = isMarkdown
+      ? tokenizeMarkdownParagraphs(normalizedContent)
+      : tokenizeParagraphs(normalizedContent);
+
+    const documentId = `${documentPrefix}-${fileName.replace(/\.[^/.]+$/, '')}`;
+
+    addDocument({
+      id: documentId,
+      type: 'text',
+      format: isMarkdown ? 'markdown' : 'plain',
+      title: fileName.replace(/\.[^/.]+$/, ''),
+      content: normalizedContent,
+      paragraphs,
+      createdAt: Date.now(),
+    });
+  };
+
+  const loadEpubDocument = async (file: File, documentPrefix: string) => {
+    const { parseEpubFile } = await import('./utils/epubParser');
+    const { title, author, chapters } = await parseEpubFile(file);
+
+    const documentId = `${documentPrefix}-${file.name.replace(/\.epub$/i, '')}`;
+
+    addDocument({
+      id: documentId,
+      type: 'epub',
+      title,
+      author,
+      chapters,
+      currentChapterId: chapters[0]?.id,
+      createdAt: Date.now(),
+    });
+  };
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -2586,23 +2653,8 @@ writes / wrote / written / write`;
     if (file.name.toLowerCase().endsWith('.epub')) {
       try {
         console.log('[App] Loading EPUB file:', file.name);
-        const { parseEpubFile } = await import('./utils/epubParser');
-        const { title, author, chapters } = await parseEpubFile(file);
-        
-        // Use filename as consistent ID (remove .epub extension)
-        const documentId = `epub-${file.name.replace(/\.epub$/i, '')}`;
-        
-        addDocument({
-          id: documentId,
-          type: 'epub',
-          title,
-          author,
-          chapters,
-          currentChapterId: chapters[0]?.id,  // Default to first chapter
-          createdAt: Date.now(),
-        });
-        
-        console.log(`[App] EPUB loaded: ${title} with ${chapters.length} chapters`);
+        await loadEpubDocument(file, 'epub');
+        console.log(`[App] EPUB loaded: ${file.name}`);
       } catch (error) {
         console.error('[App] Failed to load EPUB:', error);
         alert(`Failed to load EPUB file: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -2611,26 +2663,36 @@ writes / wrote / written / write`;
       // Handle text file
       const reader = new FileReader();
       reader.onload = (event) => {
-        const content = normalizeImportedText((event.target?.result as string) || '', file.name);
-        const isMarkdown = /\.(md|markdown)$/i.test(file.name);
-        const paragraphs = isMarkdown
-          ? tokenizeMarkdownParagraphs(content)
-          : tokenizeParagraphs(content);
-        
-        // Use filename as consistent ID (remove extension)
-        const documentId = `txt-${file.name.replace(/\.[^/.]+$/, '')}`;
-
-        addDocument({
-          id: documentId,
-          type: 'text',
-          format: isMarkdown ? 'markdown' : 'plain',
-          title: file.name.replace(/\.[^/.]+$/, ''),
-          content,
-          paragraphs,
-          createdAt: Date.now(),
-        });
+        const content = (event.target?.result as string) || '';
+        loadTextDocument(content, file.name, 'txt');
       };
       reader.readAsText(file);
+    }
+  };
+
+  const handleLoadServerBook = async (book: ServerLibraryBook) => {
+    try {
+      setLoadingServerBookName(book.fileName);
+      const response = await fetch(book.url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch server book: ${response.status}`);
+      }
+
+      if (book.type === 'epub') {
+        const blob = await response.blob();
+        const file = new File([blob], book.fileName, {
+          type: 'application/epub+zip',
+        });
+        await loadEpubDocument(file, 'server-epub');
+      } else {
+        const content = await response.text();
+        loadTextDocument(content, book.fileName, 'server-text');
+      }
+    } catch (error) {
+      console.error('[App] Failed to load server book:', error);
+      alert(`Failed to load server book: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setLoadingServerBookName(null);
     }
   };
 
@@ -3744,6 +3806,30 @@ writes / wrote / written / write`;
                   >
                     <span>Import file</span>
                   </div>
+                  <div className="text-xs text-muted mt-3 mb-1">{serverLibraryStatus}</div>
+                  {serverLibraryBooks.map((book) => (
+                    <div
+                      key={book.fileName}
+                      onClick={() => void handleLoadServerBook(book)}
+                      className="px-3 py-2 rounded-lg hover:bg-hover flex items-center justify-between gap-2 cursor-pointer"
+                    >
+                      <span className="flex items-center gap-2 min-w-0 flex-1">
+                        <span className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold ${
+                          book.type === 'epub'
+                            ? 'bg-amber-100 text-amber-800'
+                            : book.format === 'markdown'
+                              ? 'bg-zinc-100 text-zinc-700'
+                              : 'bg-sky-100 text-sky-700'
+                        }`}>
+                          {book.type === 'epub' ? 'EPUB' : book.format === 'markdown' ? 'MD' : 'TXT'}
+                        </span>
+                        <span className="truncate" title={book.title}>{book.title}</span>
+                      </span>
+                      <span className="text-xs text-muted whitespace-nowrap">
+                        {loadingServerBookName === book.fileName ? 'Loading...' : new Date(book.updatedAt).toLocaleDateString()}
+                      </span>
+                    </div>
+                  ))}
                 </>
               )}
             </div>

@@ -1,6 +1,8 @@
 import type { EncounteredMeaning } from '../utils/wordMeanings';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL
+  || (import.meta.env.DEV ? 'http://localhost:3000' : window.location.origin);
 
 export function resolveAssetUrl(urlOrPath: string): string {
   if (!urlOrPath) return urlOrPath;
@@ -117,6 +119,17 @@ export interface CardNoteReplyResponse {
   error?: string;
 }
 
+export interface ServerLibraryBook {
+  fileName: string;
+  title: string;
+  extension: string;
+  type: 'epub' | 'text';
+  format: 'plain' | 'markdown';
+  size: number;
+  updatedAt: string;
+  url: string;
+}
+
 export async function annotateWord(
   word: string,
   level: string = 'B2',
@@ -142,6 +155,27 @@ export async function annotateWord(
     return {
       success: false,
       error: error.message || 'Failed to fetch annotation',
+    };
+  }
+}
+
+export async function getServerLibraryBooks(): Promise<{
+  success: boolean;
+  data?: ServerLibraryBook[];
+  error?: string;
+}> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/library/books`);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error: any) {
+    console.error('API Error:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to load server library',
     };
   }
 }
